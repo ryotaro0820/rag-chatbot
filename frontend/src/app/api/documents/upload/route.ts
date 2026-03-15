@@ -97,10 +97,12 @@ export async function POST(request: NextRequest) {
           chunk_count: chunks.length,
         });
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "処理エラー";
+        console.error(`[Upload] ${file.name} failed:`, errorMsg);
         results.push({
           filename: file.name,
           success: false,
-          error: err instanceof Error ? err.message : "処理エラー",
+          error: errorMsg,
         });
       }
     }

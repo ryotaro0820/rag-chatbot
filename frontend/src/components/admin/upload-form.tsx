@@ -47,10 +47,20 @@ export function UploadForm({ categories, onUploaded }: UploadFormProps) {
         files,
         categoryId || undefined
       );
-      const successCount = results.filter((r: { success: boolean }) => r.success).length;
-      toast.success(
-        `${successCount}件のファイルをアップロードしました`
-      );
+      const successes = results.filter((r) => r.success);
+      const failures = results.filter((r) => !r.success);
+
+      if (successes.length > 0) {
+        toast.success(`${successes.length}件のファイルをアップロードしました`);
+      }
+      if (failures.length > 0) {
+        failures.forEach((f) => {
+          toast.error(`${f.filename}: ${f.error || "処理エラー"}`);
+        });
+      }
+      if (successes.length === 0 && failures.length === 0) {
+        toast.error("ファイルが処理されませんでした");
+      }
       setFiles([]);
       onUploaded();
     } catch (err) {
