@@ -14,26 +14,27 @@ export async function extractText(
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<PageText[]> {
-  // pdf-parse v2 uses dynamic import
-  const pdfParse = (await import("pdf-parse")).default;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require("pdf-parse") as (
+    buf: Buffer,
+    opts?: Record<string, unknown>
+  ) => Promise<{ text: string; numpages: number }>;
 
+  const data = await pdfParse(buffer);
+  // pdf-parse doesn't provide per-page text easily,
+  // so we split by form feeds or return as single page
   const pages: PageText[] = [];
-  let currentPage = 0;
+  const rawPages = data.text.split("\f");
 
-  await pdfParse(buffer, {
-    pagerender: async (pageData: { getTextContent: () => Promise<{ items: Array<{ str: string }> }> }) => {
-      currentPage++;
-      const textContent = await pageData.getTextContent();
-      const text = textContent.items.map((item) => item.str).join(" ");
-      pages.push({ text, page: currentPage });
-      return text;
-    },
-  });
+  for (let i = 0; i < rawPages.length; i++) {
+    const text = rawPages[i].trim();
+    if (text) {
+      pages.push({ text, page: i + 1 });
+    }
+  }
 
-  // If pagerender didn't work, fall back to full text
-  if (pages.length === 0) {
-    const data = await pdfParse(buffer);
-    pages.push({ text: data.text, page: null });
+  if (pages.length === 0 && data.text.trim()) {
+    pages.push({ text: data.text.trim(), page: null });
   }
 
   return pages;
@@ -42,6 +43,5 @@ async function extractTextFromPdf(buffer: Buffer): Promise<PageText[]> {
 async function extractTextFromDocx(buffer: Buffer): Promise<PageText[]> {
   const mammoth = await import("mammoth");
   const result = await mammoth.extractRawText({ buffer });
-  // DOCXはページ情報が取れないので全体を1つにする
   return [{ text: result.value, page: null }];
 }
