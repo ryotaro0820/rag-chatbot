@@ -85,7 +85,7 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
 
         // Step 4: OpenAI ストリーミング
         const stream = await openaiClient.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: "gpt-5-nano",
           messages,
           stream: true,
           stream_options: { include_usage: true },

@@ -81,7 +81,11 @@ export async function searchSimilarChunks(
   }
 
   const { data, error } = await supabase.rpc(rpcName, params);
-  if (error) throw new Error(`ベクトル検索エラー: ${error.message}`);
+  if (error) {
+    console.error(`ベクトル検索エラー (${rpcName}):`, error.message);
+    // RPC関数が存在しない場合やテーブル未作成の場合は空結果で続行
+    return { chunks: [], embeddingTokens };
+  }
 
   return { chunks: data || [], embeddingTokens };
 }
