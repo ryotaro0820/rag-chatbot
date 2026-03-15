@@ -57,8 +57,8 @@ export async function POST(request: NextRequest) {
         const documentId = randomUUID();
         const buffer = Buffer.from(await file.arrayBuffer());
 
-        // ストレージにアップロード
-        const storagePath = `${documentId}/${file.name}`;
+        // ストレージにアップロード（日本語ファイル名はSupabase Storageで使えないのでUUID+拡張子）
+        const storagePath = `${documentId}/file.${ext}`;
         await uploadFile(supabase, storagePath, buffer, file.name);
 
         // テキスト抽出

@@ -52,7 +52,8 @@ export async function POST(
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storagePath = `${documentId}/${file.name}`;
+    const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+    const storagePath = `${documentId}/file.${ext}`;
 
     // 新しいファイルをアップロード
     await uploadFile(supabase, storagePath, buffer, file.name);
