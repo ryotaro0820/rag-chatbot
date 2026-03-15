@@ -41,7 +41,7 @@ export async function storeChunks(
     chunk_index: chunk.chunk_index,
     content: chunk.text,
     page_numbers: chunk.page_numbers,
-    embedding: JSON.stringify(allEmbeddings[idx]),
+    embedding: `[${allEmbeddings[idx].join(",")}]`,
   }));
 
   // バッチで挿入
@@ -72,7 +72,7 @@ export async function searchSimilarChunks(
   // チャットボットIDがある場合は専用関数、ない場合は全体検索
   const rpcName = chatbotId ? "match_chunks_for_chatbot" : "match_chunks";
   const params: Record<string, unknown> = {
-    query_embedding: JSON.stringify(queryEmbedding),
+    query_embedding: `[${queryEmbedding.join(",")}]`,
     match_count: topK,
     match_threshold: threshold,
   };

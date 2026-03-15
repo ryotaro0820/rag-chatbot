@@ -67,16 +67,8 @@ export async function POST(request: NextRequest) {
         // チャンク分割
         const chunks = chunkText(pages);
 
-        // ベクトル化 & 保存
-        const embeddingTokens = await storeChunks(
-          supabase,
-          openaiClient,
-          documentId,
-          chunks
-        );
-
-        // メタデータ保存
-        await supabase.from("documents").insert({
+        // メタデータを先に保存（外部キー制約のため）
+        const { error: docError } = await supabase.from("documents").insert({
           id: documentId,
           filename: file.name,
           category_id: categoryId || null,
@@ -85,6 +77,15 @@ export async function POST(request: NextRequest) {
           storage_path: storagePath,
           version: 1,
         });
+        if (docError) throw new Error(`文書メタデータ保存エラー: ${docError.message}`);
+
+        // ベクトル化 & チャンク保存（documentsレコードが存在した後に実行）
+        const embeddingTokens = await storeChunks(
+          supabase,
+          openaiClient,
+          documentId,
+          chunks
+        );
 
         // 使用量記録
         await trackUsage(supabase, 0, 0, embeddingTokens);
