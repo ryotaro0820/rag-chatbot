@@ -4,7 +4,7 @@ import { getOpenAI } from "@/lib/server/openai";
 import { createChatStream } from "@/lib/server/chat-service";
 import { trackUsage } from "@/lib/server/usage-tracker";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
@@ -97,6 +97,7 @@ async function logChatInBackground(
     let promptTokens = 0;
     let completionTokens = 0;
     let embeddingTokens = 0;
+    const allSources: unknown[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -109,12 +110,18 @@ async function logChatInBackground(
           try {
             const data = JSON.parse(line.slice(6));
             if (data.type === "done") {
-              fullResponse = data.full_response;
+              // Combine all document responses
+              if (data.documents) {
+                fullResponse = data.documents
+                  .map((d: { filename: string; full_response: string }) =>
+                    `【${d.filename}】\n${d.full_response}`)
+                  .join("\n\n");
+              }
               promptTokens = data.prompt_tokens;
               completionTokens = data.completion_tokens;
               embeddingTokens = data.embedding_tokens;
-            } else if (data.type === "sources") {
-              sources = data.sources;
+            } else if (data.type === "doc_sources" && data.sources) {
+              allSources.push(...data.sources);
             }
           } catch {
             // ignore parse errors
@@ -122,6 +129,8 @@ async function logChatInBackground(
         }
       }
     }
+
+    sources = allSources.length > 0 ? allSources : null;
 
     // チャットログ保存
     await supabase.from("chat_logs").insert({

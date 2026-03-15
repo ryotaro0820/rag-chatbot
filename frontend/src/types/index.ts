@@ -1,9 +1,20 @@
+export interface DocResponse {
+  doc_index: number;
+  document_id: string;
+  filename: string;
+  content: string;
+  sources: SourceReference[];
+  isStreaming: boolean;
+  isDone: boolean;
+}
+
 export interface ChatMessage {
   id?: number;
   role: "user" | "assistant";
   content: string;
   sources?: SourceReference[];
   isStreaming?: boolean;
+  docResponses?: DocResponse[];
 }
 
 export interface SourceReference {

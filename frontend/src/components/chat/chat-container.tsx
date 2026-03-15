@@ -25,7 +25,7 @@ import {
   createNewConversation,
   generateTitle,
 } from "@/lib/chat-storage";
-import type { ChatMessage, Conversation, SourceReference, Chatbot } from "@/types";
+import type { ChatMessage, Conversation, SourceReference, Chatbot, DocResponse } from "@/types";
 
 interface ChatContainerProps {
   chatbotSlug?: string;
@@ -91,6 +91,7 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
         role: "assistant",
         content: "",
         isStreaming: true,
+        docResponses: [],
       };
 
       const updatedMessages = [
@@ -114,8 +115,7 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
           chatbot?.id
         );
         const decoder = new TextDecoder();
-        let fullContent = "";
-        let sources: SourceReference[] = [];
+        const docResponses: DocResponse[] = [];
         let chatLogId: number | undefined;
 
         while (true) {
@@ -131,19 +131,56 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
             try {
               const data = JSON.parse(line.slice(6));
 
-              if (data.type === "chunk") {
-                fullContent += data.content;
+              if (data.type === "doc_start") {
+                docResponses[data.doc_index] = {
+                  doc_index: data.doc_index,
+                  document_id: data.document_id,
+                  filename: data.filename,
+                  content: "",
+                  sources: [],
+                  isStreaming: true,
+                  isDone: false,
+                };
                 setConversation((prev) => {
                   const msgs = [...prev.messages];
                   msgs[msgs.length - 1] = {
                     ...msgs[msgs.length - 1],
-                    content: fullContent,
+                    docResponses: [...docResponses],
                     isStreaming: true,
                   };
                   return { ...prev, messages: msgs };
                 });
-              } else if (data.type === "sources") {
-                sources = data.sources;
+              } else if (data.type === "chunk" && data.doc_index !== undefined) {
+                if (docResponses[data.doc_index]) {
+                  docResponses[data.doc_index].content += data.content;
+                  setConversation((prev) => {
+                    const msgs = [...prev.messages];
+                    msgs[msgs.length - 1] = {
+                      ...msgs[msgs.length - 1],
+                      docResponses: [...docResponses],
+                      isStreaming: true,
+                    };
+                    return { ...prev, messages: msgs };
+                  });
+                }
+              } else if (data.type === "doc_sources") {
+                if (docResponses[data.doc_index]) {
+                  docResponses[data.doc_index].sources = data.sources;
+                }
+              } else if (data.type === "doc_done") {
+                if (docResponses[data.doc_index]) {
+                  docResponses[data.doc_index].isStreaming = false;
+                  docResponses[data.doc_index].isDone = true;
+                  setConversation((prev) => {
+                    const msgs = [...prev.messages];
+                    msgs[msgs.length - 1] = {
+                      ...msgs[msgs.length - 1],
+                      docResponses: [...docResponses],
+                      isStreaming: true,
+                    };
+                    return { ...prev, messages: msgs };
+                  });
+                }
               } else if (data.type === "done") {
                 chatLogId = data.chat_log_id;
               }
@@ -153,13 +190,19 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
           }
         }
 
-        // Finalize message
+        // Finalize: combine content from all doc responses
+        const combinedContent = docResponses
+          .map((d) => `**${d.filename}**\n${d.content}`)
+          .join("\n\n---\n\n");
+        const allSources = docResponses.flatMap((d) => d.sources);
+
         setConversation((prev) => {
           const msgs = [...prev.messages];
           msgs[msgs.length - 1] = {
             role: "assistant",
-            content: fullContent,
-            sources,
+            content: combinedContent,
+            sources: allSources,
+            docResponses: [...docResponses],
             id: chatLogId,
             isStreaming: false,
           };

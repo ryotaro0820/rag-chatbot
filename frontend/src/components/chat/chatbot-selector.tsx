@@ -2,37 +2,28 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Flame, Droplets, Gauge, Bot, Loader2 } from "lucide-react";
+import { Shield, Search, Telescope, Bot, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { listChatbots } from "@/lib/api";
 import type { Chatbot } from "@/types";
 
 const SLUG_ICONS: Record<string, React.ReactNode> = {
-  "gas-business": <Flame className="h-8 w-8" />,
-  "lpg-law": <Droplets className="h-8 w-8" />,
-  "high-pressure-gas": <Gauge className="h-8 w-8" />,
-  // 旧slug互換
-  strict: <Flame className="h-8 w-8" />,
-  standard: <Droplets className="h-8 w-8" />,
-  broad: <Gauge className="h-8 w-8" />,
+  strict: <Shield className="h-8 w-8" />,
+  standard: <Search className="h-8 w-8" />,
+  broad: <Telescope className="h-8 w-8" />,
 };
 
 const SLUG_COLORS: Record<string, string> = {
-  "gas-business": "from-red-500/10 to-red-600/5 border-red-200 hover:border-red-400",
-  "lpg-law": "from-blue-500/10 to-blue-600/5 border-blue-200 hover:border-blue-400",
-  "high-pressure-gas": "from-green-500/10 to-green-600/5 border-green-200 hover:border-green-400",
-  strict: "from-red-500/10 to-red-600/5 border-red-200 hover:border-red-400",
-  standard: "from-blue-500/10 to-blue-600/5 border-blue-200 hover:border-blue-400",
-  broad: "from-green-500/10 to-green-600/5 border-green-200 hover:border-green-400",
+  strict: "from-blue-500/10 to-blue-600/5 border-blue-200 hover:border-blue-400",
+  standard: "from-green-500/10 to-green-600/5 border-green-200 hover:border-green-400",
+  broad: "from-orange-500/10 to-orange-600/5 border-orange-200 hover:border-orange-400",
 };
 
 const SLUG_ACCENT: Record<string, string> = {
-  "gas-business": "bg-red-100 text-red-700",
-  "lpg-law": "bg-blue-100 text-blue-700",
-  "high-pressure-gas": "bg-green-100 text-green-700",
-  strict: "bg-red-100 text-red-700",
-  standard: "bg-blue-100 text-blue-700",
-  broad: "bg-green-100 text-green-700",
+  strict: "bg-blue-100 text-blue-700",
+  standard: "bg-green-100 text-green-700",
+  broad: "bg-orange-100 text-orange-700",
 };
 
 export function ChatbotSelector() {
@@ -74,8 +65,8 @@ export function ChatbotSelector() {
         </div>
         <h1 className="text-3xl font-bold tracking-tight">法令チャットボット</h1>
         <p className="text-muted-foreground text-center max-w-md">
-          質問したい法令を選択してください。
-          各チャットボットは対応する法令文書のみを参照して回答します。
+          検索モードを選択してください。
+          各モードは検索の厳密さが異なり、すべての法令文書を横断して回答します。
         </p>
       </div>
 
@@ -103,6 +94,14 @@ export function ChatbotSelector() {
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {bot.description}
                 </p>
+                <div className="mt-3 flex gap-2">
+                  <Badge variant="outline" className="text-[10px]">
+                    閾値 {Math.round(bot.similarity_threshold * 100)}%
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    Top-K {bot.top_k}
+                  </Badge>
+                </div>
               </CardContent>
             </Card>
           );

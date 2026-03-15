@@ -122,3 +122,53 @@ export interface ChunkResult {
   filename: string;
   similarity: number;
 }
+
+export async function generateQueryEmbedding(
+  client: OpenAI,
+  query: string
+): Promise<{ embedding: number[]; tokens: number }> {
+  const response = await client.embeddings.create({
+    model: "text-embedding-3-small",
+    input: query,
+  });
+  return {
+    embedding: response.data[0].embedding,
+    tokens: response.usage.total_tokens,
+  };
+}
+
+export async function searchByDocument(
+  supabase: SupabaseClient,
+  openaiClient: OpenAI,
+  query: string,
+  documentId: string,
+  topK: number = 8,
+  threshold: number = 0.3,
+  queryEmbedding?: number[]
+): Promise<{ chunks: ChunkResult[]; embeddingTokens: number }> {
+  let embedding = queryEmbedding;
+  let embeddingTokens = 0;
+
+  if (!embedding) {
+    const response = await openaiClient.embeddings.create({
+      model: "text-embedding-3-small",
+      input: query,
+    });
+    embedding = response.data[0].embedding;
+    embeddingTokens = response.usage.total_tokens;
+  }
+
+  const { data, error } = await supabase.rpc("match_chunks_for_document", {
+    query_embedding: `[${embedding.join(",")}]`,
+    match_count: topK,
+    match_threshold: threshold,
+    p_document_id: documentId,
+  });
+
+  if (error) {
+    console.error(`ベクトル検索エラー (document ${documentId}):`, error.message);
+    return { chunks: [], embeddingTokens };
+  }
+
+  return { chunks: data || [], embeddingTokens };
+}

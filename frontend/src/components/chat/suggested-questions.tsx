@@ -3,10 +3,10 @@
 import { MessageSquare } from "lucide-react";
 
 const SUGGESTIONS = [
-  "就業規則について教えてください",
-  "有給休暇の申請方法は？",
-  "経費精算の手順を教えてください",
-  "リモートワークのルールは？",
+  "ガス事業者の許可要件は？",
+  "液化石油ガスの販売に必要な資格は？",
+  "高圧ガスの貯蔵基準について教えてください",
+  "保安検査の頻度はどのくらいですか？",
 ];
 
 interface SuggestedQuestionsProps {

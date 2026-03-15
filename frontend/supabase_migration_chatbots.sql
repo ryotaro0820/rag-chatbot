@@ -110,108 +110,96 @@ END;
 $$;
 
 -- ============================================================
--- 既存のチャットボットデータを削除して、法令別3つを作成
+-- 特定の document_id 内でベクトル検索する関数
+-- ============================================================
+CREATE OR REPLACE FUNCTION match_chunks_for_document(
+    query_embedding VECTOR(1536),
+    match_count INT DEFAULT 8,
+    match_threshold FLOAT DEFAULT 0.3,
+    p_document_id UUID DEFAULT NULL
+)
+RETURNS TABLE (
+    id UUID,
+    document_id UUID,
+    content TEXT,
+    page_numbers TEXT,
+    filename TEXT,
+    similarity FLOAT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        dc.id,
+        dc.document_id,
+        dc.content,
+        dc.page_numbers,
+        d.filename,
+        (1 - (dc.embedding <=> query_embedding))::FLOAT AS similarity
+    FROM document_chunks dc
+    JOIN documents d ON dc.document_id = d.id
+    WHERE 1 - (dc.embedding <=> query_embedding) > match_threshold
+      AND (p_document_id IS NULL OR dc.document_id = p_document_id)
+    ORDER BY dc.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;
+
+-- ============================================================
+-- 検索モード別チャットボット（strict / standard / broad）
 -- ============================================================
 DELETE FROM chatbot_documents;
 DELETE FROM chatbots;
 
 INSERT INTO chatbots (name, slug, description, similarity_threshold, top_k, display_order, system_prompt) VALUES
 (
-    'ガス事業法',
-    'gas-business',
-    'ガス事業法に関する質問に回答します。ガス事業の許可・届出、保安規制、供給条件などについてお答えします。',
-    0.3,
-    8,
+    '厳密検索モード',
+    'strict',
+    '文書への一致率が高いものだけ回答します。正確性を重視する場合に最適です。',
+    0.5,
+    5,
     1,
-    'あなたは「ガス事業法」の専門アシスタントです。
-以下の参考情報はガス事業法の条文から抽出されたものです。
-この参考情報をもとに、正確かつ具体的に回答してください。
-
-回答のルール:
-- 参考情報に含まれる条文番号（第○条）を明示して回答してください
-- 参考情報に含まれない内容については「ガス事業法の提供された範囲には該当する規定が見つかりませんでした」と伝えてください
-- 法律の解釈が必要な場合は、条文の文言に忠実に回答し、独自の解釈は避けてください
-- 関連する条文が複数ある場合は、それぞれの条文を引用してください
+    'あなたは法令文書に基づいて質問に答えるアシスタントです。
+以下の参考情報をもとに、正確かつ具体的に回答してください。
+参考情報に含まれない内容については、「この情報は提供された文書には含まれていません」と正直に伝えてください。
+回答の際は、条文番号（第○条）を明示してください。
+【重要】参考情報との一致度が高い情報のみを使用して回答してください。推測や補完は行わないでください。
 
 【参考情報】
 {context}'
 ),
 (
-    '液化石油ガス法',
-    'lpg-law',
-    '液化石油ガスの保安の確保及び取引の適正化に関する法律について回答します。LPガスの販売・保安・設備基準などについてお答えします。',
+    '標準検索モード',
+    'standard',
+    '中程度の一致率でも回答します。バランスの取れた検索モードです。',
     0.3,
     8,
     2,
-    'あなたは「液化石油ガスの保安の確保及び取引の適正化に関する法律」（液化石油ガス法）の専門アシスタントです。
-以下の参考情報は液化石油ガス法の条文から抽出されたものです。
-この参考情報をもとに、正確かつ具体的に回答してください。
-
-回答のルール:
-- 参考情報に含まれる条文番号（第○条）を明示して回答してください
-- 参考情報に含まれない内容については「液化石油ガス法の提供された範囲には該当する規定が見つかりませんでした」と伝えてください
-- 法律の解釈が必要な場合は、条文の文言に忠実に回答し、独自の解釈は避けてください
-- 関連する条文が複数ある場合は、それぞれの条文を引用してください
+    'あなたは法令文書に基づいて質問に答えるアシスタントです。
+以下の参考情報をもとに、正確かつ具体的に回答してください。
+参考情報に含まれない内容については、「この情報は提供された文書には含まれていません」と正直に伝えてください。
+回答の際は、条文番号（第○条）を明示してください。
 
 【参考情報】
 {context}'
 ),
 (
-    '高圧ガス保安法',
-    'high-pressure-gas',
-    '高圧ガス保安法に関する質問に回答します。高圧ガスの製造・貯蔵・販売・移動の規制などについてお答えします。',
-    0.3,
-    8,
+    '広範検索モード',
+    'broad',
+    '一致率が低くても関連情報を幅広く抽出します。探索的な質問に最適です。',
+    0.15,
+    12,
     3,
-    'あなたは「高圧ガス保安法」の専門アシスタントです。
-以下の参考情報は高圧ガス保安法の条文から抽出されたものです。
-この参考情報をもとに、正確かつ具体的に回答してください。
-
-回答のルール:
-- 参考情報に含まれる条文番号（第○条）を明示して回答してください
-- 参考情報に含まれない内容については「高圧ガス保安法の提供された範囲には該当する規定が見つかりませんでした」と伝えてください
-- 法律の解釈が必要な場合は、条文の文言に忠実に回答し、独自の解釈は避けてください
-- 関連する条文が複数ある場合は、それぞれの条文を引用してください
+    'あなたは法令文書に基づいて質問に答えるアシスタントです。
+以下の参考情報をもとに、できるだけ関連する情報を集めて回答してください。
+直接的な回答が見つからない場合でも、関連する情報があれば提示してください。
+参考情報に全く関連する内容がない場合のみ、「関連する情報が見つかりませんでした」と伝えてください。
+回答の際は、条文番号（第○条）を明示してください。
 
 【参考情報】
 {context}'
 );
 
--- ============================================================
--- 文書とチャットボットの紐付け
--- ※ 文書アップロード後に、管理画面から紐付けるか、
---   以下のように手動でSQLで紐付けてください。
---
--- 例: アップロード済み文書のfilenameで紐付け
--- ============================================================
-
--- ガス事業法の文書を紐付け
-INSERT INTO chatbot_documents (chatbot_id, document_id)
-SELECT c.id, d.id
-FROM chatbots c, documents d
-WHERE c.slug = 'gas-business'
-  AND d.filename ILIKE '%ガス事業法%'
-ON CONFLICT DO NOTHING;
-
--- 液化石油ガス法の文書を紐付け
-INSERT INTO chatbot_documents (chatbot_id, document_id)
-SELECT c.id, d.id
-FROM chatbots c, documents d
-WHERE c.slug = 'lpg-law'
-  AND (d.filename ILIKE '%液化石油ガス%' OR d.filename ILIKE '%液化ガス%')
-ON CONFLICT DO NOTHING;
-
--- 高圧ガス保安法の文書を紐付け
-INSERT INTO chatbot_documents (chatbot_id, document_id)
-SELECT c.id, d.id
-FROM chatbots c, documents d
-WHERE c.slug = 'high-pressure-gas'
-  AND d.filename ILIKE '%高圧ガス保安法%'
-ON CONFLICT DO NOTHING;
-
--- 確認用クエリ
-SELECT c.name, c.slug, d.filename
-FROM chatbots c
-LEFT JOIN chatbot_documents cd ON c.id = cd.chatbot_id
-LEFT JOIN documents d ON cd.document_id = d.id
-ORDER BY c.display_order;
+-- All documents are available to all chatbots (no per-chatbot document filtering needed for this mode)
+-- The per-document search is done automatically for each document in the system
