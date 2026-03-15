@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { FileText, BarChart3, Bot, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoginForm } from "@/components/admin/login-form";
@@ -16,22 +16,33 @@ export default function AdminLayout({
   const [email, setEmail] = useState("");
   const [checking, setChecking] = useState(true);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
-    const token = sessionStorage.getItem("admin_token");
-    const savedEmail = sessionStorage.getItem("admin_email");
-    if (token) {
-      setAuthenticated(true);
-      setEmail(savedEmail || "");
-    }
-    setChecking(false);
+    // サーバーサイドでトークンを検証
+    fetch("/api/admin/me", { credentials: "include" })
+      .then((res) => {
+        if (res.ok) return res.json();
+        throw new Error("Not authenticated");
+      })
+      .then((data) => {
+        setAuthenticated(true);
+        setEmail(data.email || "");
+      })
+      .catch(() => {
+        setAuthenticated(false);
+      })
+      .finally(() => setChecking(false));
   }, []);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem("admin_token");
-    sessionStorage.removeItem("admin_email");
+  const handleLogout = async () => {
+    await fetch("/api/admin/logout", {
+      method: "POST",
+      credentials: "include",
+    });
     setAuthenticated(false);
     setEmail("");
+    router.refresh();
   };
 
   if (checking) return null;

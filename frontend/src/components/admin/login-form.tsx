@@ -5,7 +5,6 @@ import { LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { adminLogin } from "@/lib/api";
 
 interface LoginFormProps {
   onLogin: (email: string) => void;
@@ -23,10 +22,20 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setLoading(true);
 
     try {
-      const result = await adminLogin(email, password);
-      sessionStorage.setItem("admin_token", result.access_token);
-      sessionStorage.setItem("admin_email", result.user_email);
-      onLogin(result.user_email);
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // Cookie を送受信
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "ログインに失敗しました");
+      }
+
+      const data = await res.json();
+      onLogin(data.user_email);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "ログインに失敗しました"
@@ -56,6 +65,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@example.com"
+                autoComplete="email"
                 required
               />
             </div>
@@ -68,6 +78,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="パスワード"
+                autoComplete="current-password"
                 required
               />
             </div>

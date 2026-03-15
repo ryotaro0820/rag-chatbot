@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// レート制限用のインメモリストア（Vercelのサーバーレス環境では限定的だが基本的な防御として有効）
+// レート制限用のインメモリストア
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
 const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
-  "/api/admin/login": { max: 5, windowMs: 60 * 1000 },       // ログイン: 1分に5回
-  "/api/chat": { max: 10, windowMs: 60 * 1000 },              // チャット: 1分に10回
-  "/api/documents/upload": { max: 5, windowMs: 60 * 1000 },   // アップロード: 1分に5回
-  "/api/feedback": { max: 20, windowMs: 60 * 1000 },          // フィードバック: 1分に20回
+  "/api/admin/login": { max: 5, windowMs: 60 * 1000 },
+  "/api/chat": { max: 10, windowMs: 60 * 1000 },
+  "/api/documents/upload": { max: 5, windowMs: 60 * 1000 },
+  "/api/feedback": { max: 20, windowMs: 60 * 1000 },
 };
 
 function getClientIp(request: NextRequest): string {
@@ -35,7 +35,6 @@ function checkRateLimit(key: string, max: number, windowMs: number): boolean {
   return true;
 }
 
-// 定期的にストアをクリーンアップ
 function cleanupStore() {
   const now = Date.now();
   for (const [key, entry] of rateLimitStore.entries()) {
@@ -45,10 +44,25 @@ function cleanupStore() {
   }
 }
 
+/**
+ * 認証トークンを取得（Cookie優先、Authorizationヘッダーにフォールバック）
+ */
+function getAdminToken(request: NextRequest): string | null {
+  const cookieToken = request.cookies.get("admin_token")?.value;
+  if (cookieToken) return cookieToken;
+
+  const authHeader = request.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.split(" ")[1];
+  }
+
+  return null;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 定期クリーンアップ（100リクエストに1回）
+  // 定期クリーンアップ
   if (Math.random() < 0.01) cleanupStore();
 
   // API ルートのレート制限
@@ -62,9 +76,7 @@ export function middleware(request: NextRequest) {
           { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
           {
             status: 429,
-            headers: {
-              "Retry-After": "60",
-            },
+            headers: { "Retry-After": "60" },
           }
         );
       }
@@ -72,13 +84,15 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // 管理者API（login以外）はAuthorizationヘッダー必須
+  // 管理者API（login, logout, me以外）はトークン必須
   if (
     pathname.startsWith("/api/admin/") &&
-    !pathname.startsWith("/api/admin/login")
+    !pathname.startsWith("/api/admin/login") &&
+    !pathname.startsWith("/api/admin/logout") &&
+    !pathname.startsWith("/api/admin/me")
   ) {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = getAdminToken(request);
+    if (!token) {
       return NextResponse.json(
         { error: "認証が必要です" },
         { status: 401 }
@@ -91,8 +105,8 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/api/documents") &&
     request.method !== "GET"
   ) {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = getAdminToken(request);
+    if (!token) {
       return NextResponse.json(
         { error: "認証が必要です" },
         { status: 401 }
@@ -105,8 +119,8 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/api/categories") &&
     request.method !== "GET"
   ) {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = getAdminToken(request);
+    if (!token) {
       return NextResponse.json(
         { error: "認証が必要です" },
         { status: 401 }
@@ -114,13 +128,13 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // チャットボットAPI（PUT/DELETE）は認証必須
+  // チャットボットAPI（PUT/DELETE/POST）は認証必須
   if (
     pathname.startsWith("/api/chatbots") &&
     (request.method === "PUT" || request.method === "DELETE" || request.method === "POST")
   ) {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = getAdminToken(request);
+    if (!token) {
       return NextResponse.json(
         { error: "認証が必要です" },
         { status: 401 }

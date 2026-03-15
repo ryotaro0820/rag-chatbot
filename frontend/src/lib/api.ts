@@ -9,13 +9,14 @@ import type {
   Chatbot,
 } from "@/types";
 
-function getAuthHeaders(): Record<string, string> {
-  const token =
-    typeof window !== "undefined" ? sessionStorage.getItem("admin_token") : null;
-  if (token) {
-    return { Authorization: `Bearer ${token}` };
-  }
-  return {};
+/**
+ * 認証付きfetch（HttpOnly Cookieを自動送信）
+ */
+function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(url, {
+    ...options,
+    credentials: "include", // HttpOnly Cookieを送信
+  });
 }
 
 // --- Admin Auth ---
@@ -23,10 +24,11 @@ function getAuthHeaders(): Record<string, string> {
 export async function adminLogin(
   email: string,
   password: string
-): Promise<{ access_token: string; user_email: string }> {
+): Promise<{ user_email: string }> {
   const res = await fetch("/api/admin/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
@@ -46,9 +48,8 @@ export async function uploadDocuments(
   files.forEach((file) => formData.append("files", file));
   if (categoryId) formData.append("category_id", categoryId);
 
-  const res = await fetch("/api/documents/upload", {
+  const res = await authFetch("/api/documents/upload", {
     method: "POST",
-    headers: getAuthHeaders(),
     body: formData,
   });
   if (!res.ok) {
@@ -65,9 +66,8 @@ export async function replaceDocument(
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`/api/documents/${documentId}/replace`, {
+  const res = await authFetch(`/api/documents/${documentId}/replace`, {
     method: "POST",
-    headers: getAuthHeaders(),
     body: formData,
   });
   if (!res.ok) {
@@ -83,9 +83,7 @@ export async function listDocuments(
   const url = new URL("/api/documents", window.location.origin);
   if (categoryId) url.searchParams.set("category_id", categoryId);
 
-  const res = await fetch(url.toString(), {
-    headers: getAuthHeaders(),
-  });
+  const res = await authFetch(url.toString());
   if (!res.ok) throw new Error("文書一覧の取得に失敗しました");
   return res.json();
 }
@@ -93,17 +91,14 @@ export async function listDocuments(
 export async function getDocumentChunks(
   documentId: string
 ): Promise<ChunkPreview[]> {
-  const res = await fetch(`/api/documents/${documentId}/chunks`, {
-    headers: getAuthHeaders(),
-  });
+  const res = await authFetch(`/api/documents/${documentId}/chunks`);
   if (!res.ok) throw new Error("チャンクの取得に失敗しました");
   return res.json();
 }
 
 export async function deleteDocument(documentId: string): Promise<void> {
-  const res = await fetch(`/api/documents/${documentId}`, {
+  const res = await authFetch(`/api/documents/${documentId}`, {
     method: "DELETE",
-    headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error("削除に失敗しました");
 }
@@ -111,17 +106,15 @@ export async function deleteDocument(documentId: string): Promise<void> {
 // --- Categories ---
 
 export async function listCategories(): Promise<CategoryInfo[]> {
-  const res = await fetch("/api/categories", {
-    headers: getAuthHeaders(),
-  });
+  const res = await authFetch("/api/categories");
   if (!res.ok) throw new Error("カテゴリの取得に失敗しました");
   return res.json();
 }
 
 export async function createCategory(name: string): Promise<CategoryInfo> {
-  const res = await fetch("/api/categories", {
+  const res = await authFetch("/api/categories", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error("カテゴリの作成に失敗しました");
@@ -129,9 +122,8 @@ export async function createCategory(name: string): Promise<CategoryInfo> {
 }
 
 export async function deleteCategory(categoryId: string): Promise<void> {
-  const res = await fetch(`/api/categories/${categoryId}`, {
+  const res = await authFetch(`/api/categories/${categoryId}`, {
     method: "DELETE",
-    headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error("カテゴリの削除に失敗しました");
 }
@@ -217,9 +209,9 @@ export async function updateChatbot(
   id: string,
   data: Partial<Chatbot>
 ): Promise<Chatbot> {
-  const res = await fetch(`/api/chatbots/${id}`, {
+  const res = await authFetch(`/api/chatbots/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("チャットボットの更新に失敗しました");
@@ -229,9 +221,7 @@ export async function updateChatbot(
 export async function getChatbotDocuments(
   chatbotId: string
 ): Promise<string[]> {
-  const res = await fetch(`/api/chatbots/${chatbotId}/documents`, {
-    headers: getAuthHeaders(),
-  });
+  const res = await authFetch(`/api/chatbots/${chatbotId}/documents`);
   if (!res.ok) throw new Error("文書割り当ての取得に失敗しました");
   return res.json();
 }
@@ -240,9 +230,9 @@ export async function updateChatbotDocuments(
   chatbotId: string,
   documentIds: string[]
 ): Promise<void> {
-  const res = await fetch(`/api/chatbots/${chatbotId}/documents`, {
+  const res = await authFetch(`/api/chatbots/${chatbotId}/documents`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ document_ids: documentIds }),
   });
   if (!res.ok) throw new Error("文書割り当ての更新に失敗しました");
@@ -254,9 +244,8 @@ export async function getChatLogs(
   limit = 50,
   offset = 0
 ): Promise<ChatLogEntry[]> {
-  const res = await fetch(
-    `/api/admin/logs?limit=${limit}&offset=${offset}`,
-    { headers: getAuthHeaders() }
+  const res = await authFetch(
+    `/api/admin/logs?limit=${limit}&offset=${offset}`
   );
   if (!res.ok) throw new Error("ログの取得に失敗しました");
   return res.json();
@@ -265,17 +254,13 @@ export async function getChatLogs(
 export async function getUsageSummary(
   days = 30
 ): Promise<UsageDailySummary[]> {
-  const res = await fetch(`/api/admin/usage?days=${days}`, {
-    headers: getAuthHeaders(),
-  });
+  const res = await authFetch(`/api/admin/usage?days=${days}`);
   if (!res.ok) throw new Error("使用量の取得に失敗しました");
   return res.json();
 }
 
 export async function getFeedbackSummary(): Promise<FeedbackSummary> {
-  const res = await fetch("/api/admin/feedback-summary", {
-    headers: getAuthHeaders(),
-  });
+  const res = await authFetch("/api/admin/feedback-summary");
   if (!res.ok) throw new Error("フィードバック集計の取得に失敗しました");
   return res.json();
 }
@@ -283,9 +268,8 @@ export async function getFeedbackSummary(): Promise<FeedbackSummary> {
 export async function getPopularQuestions(
   limit = 10
 ): Promise<PopularQuestion[]> {
-  const res = await fetch(
-    `/api/admin/popular-questions?limit=${limit}`,
-    { headers: getAuthHeaders() }
+  const res = await authFetch(
+    `/api/admin/popular-questions?limit=${limit}`
   );
   if (!res.ok) throw new Error("よくある質問の取得に失敗しました");
   return res.json();

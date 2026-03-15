@@ -47,17 +47,40 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
-      // 具体的なエラー内容は返さない（セキュリティ対策）
       return NextResponse.json(
         { error: "メールアドレスまたはパスワードが正しくありません" },
         { status: 401 }
       );
     }
 
-    return NextResponse.json({
-      access_token: data.session.access_token,
-      user_email: data.user.email,
+    const token = data.session.access_token;
+    const userEmail = data.user.email || email;
+
+    // HttpOnly Cookie にトークンを設定（XSSからの保護）
+    const response = NextResponse.json({
+      user_email: userEmail,
     });
+
+    const isProduction = process.env.NODE_ENV === "production";
+
+    response.cookies.set("admin_token", token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 60 * 60, // 1時間
+    });
+
+    // メールアドレスはJSから読めるCookieに（UI表示用のみ）
+    response.cookies.set("admin_email", userEmail, {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 60 * 60,
+    });
+
+    return response;
   } catch {
     return NextResponse.json(
       { error: "サーバーエラーが発生しました" },
