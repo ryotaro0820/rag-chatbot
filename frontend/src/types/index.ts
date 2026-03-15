@@ -77,4 +77,19 @@ export interface Conversation {
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+  chatbotId?: string;
+}
+
+export interface Chatbot {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  similarity_threshold: number;
+  top_k: number;
+  system_prompt: string | null;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
 }

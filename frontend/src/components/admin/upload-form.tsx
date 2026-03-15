@@ -43,12 +43,13 @@ export function UploadForm({ categories, onUploaded }: UploadFormProps) {
     if (files.length === 0) return;
     setUploading(true);
     try {
-      const results = await uploadDocuments(
+      const { results } = await uploadDocuments(
         files,
         categoryId || undefined
       );
+      const successCount = results.filter((r: { success: boolean }) => r.success).length;
       toast.success(
-        `${results.length}件のファイルをアップロードしました`
+        `${successCount}件のファイルをアップロードしました`
       );
       setFiles([]);
       onUploaded();

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, BarChart3, LogOut } from "lucide-react";
+import { FileText, BarChart3, Bot, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoginForm } from "@/components/admin/login-form";
 
@@ -50,8 +50,8 @@ export default function AdminLayout({
   return (
     <div className="flex min-h-screen flex-col">
       {/* Top nav */}
-      <nav className="flex items-center gap-4 border-b px-6 py-3">
-        <h1 className="text-lg font-semibold">管理者画面</h1>
+      <nav className="flex items-center gap-2 sm:gap-4 border-b px-4 sm:px-6 py-3 overflow-x-auto">
+        <h1 className="text-lg font-semibold shrink-0">管理者画面</h1>
         <div className="flex-1" />
         <Link href="/admin">
           <Button
@@ -60,6 +60,15 @@ export default function AdminLayout({
           >
             <FileText className="mr-1 h-4 w-4" />
             文書管理
+          </Button>
+        </Link>
+        <Link href="/admin/chatbots">
+          <Button
+            variant={pathname === "/admin/chatbots" ? "secondary" : "ghost"}
+            size="sm"
+          >
+            <Bot className="mr-1 h-4 w-4" />
+            チャットボット
           </Button>
         </Link>
         <Link href="/admin/dashboard">
@@ -71,7 +80,7 @@ export default function AdminLayout({
             ダッシュボード
           </Button>
         </Link>
-        <span className="text-sm text-muted-foreground">{email}</span>
+        <span className="text-sm text-muted-foreground shrink-0">{email}</span>
         <Button variant="ghost" size="sm" onClick={handleLogout}>
           <LogOut className="mr-1 h-4 w-4" />
           ログアウト

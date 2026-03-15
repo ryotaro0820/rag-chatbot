@@ -11,16 +11,24 @@ const SUGGESTIONS = [
 
 interface SuggestedQuestionsProps {
   onSelect: (question: string) => void;
+  chatbotName?: string;
+  chatbotDescription?: string | null;
 }
 
-export function SuggestedQuestions({ onSelect }: SuggestedQuestionsProps) {
+export function SuggestedQuestions({
+  onSelect,
+  chatbotName,
+  chatbotDescription,
+}: SuggestedQuestionsProps) {
   return (
     <div className="flex flex-col items-center gap-6 py-12">
       <div className="flex flex-col items-center gap-2">
         <MessageSquare className="h-12 w-12 text-muted-foreground" />
-        <h2 className="text-xl font-semibold">社内文書チャットボット</h2>
-        <p className="text-sm text-muted-foreground">
-          社内文書に基づいて質問にお答えします
+        <h2 className="text-xl font-semibold">
+          {chatbotName || "社内文書チャットボット"}
+        </h2>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          {chatbotDescription || "社内文書に基づいて質問にお答えします"}
         </p>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

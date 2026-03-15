@@ -1,12 +1,23 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { History, Plus, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  History,
+  Plus,
+  Trash2,
+  ArrowLeft,
+  Shield,
+  Search,
+  Telescope,
+  Bot,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
 import { SuggestedQuestions } from "./suggested-questions";
-import { sendChatMessage } from "@/lib/api";
+import { sendChatMessage, getChatbot } from "@/lib/api";
 import {
   getConversations,
   saveConversation,
@@ -14,9 +25,27 @@ import {
   createNewConversation,
   generateTitle,
 } from "@/lib/chat-storage";
-import type { ChatMessage, Conversation, SourceReference } from "@/types";
+import type { ChatMessage, Conversation, SourceReference, Chatbot } from "@/types";
 
-export function ChatContainer() {
+interface ChatContainerProps {
+  chatbotSlug?: string;
+}
+
+const SLUG_ICONS: Record<string, React.ReactNode> = {
+  strict: <Shield className="h-4 w-4" />,
+  standard: <Search className="h-4 w-4" />,
+  broad: <Telescope className="h-4 w-4" />,
+};
+
+const SLUG_BADGE_COLORS: Record<string, string> = {
+  strict: "bg-blue-100 text-blue-700",
+  standard: "bg-green-100 text-green-700",
+  broad: "bg-orange-100 text-orange-700",
+};
+
+export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
+  const router = useRouter();
+  const [chatbot, setChatbot] = useState<Chatbot | null>(null);
   const [conversation, setConversation] = useState<Conversation>(
     createNewConversation()
   );
@@ -24,10 +53,34 @@ export function ChatContainer() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // Load conversations from localStorage
+  // Load chatbot config
   useEffect(() => {
-    setConversations(getConversations());
-  }, []);
+    if (!chatbotSlug) return;
+    async function loadChatbot() {
+      try {
+        const bot = await getChatbot(chatbotSlug!);
+        setChatbot(bot);
+        // Create a new conversation linked to this chatbot
+        const conv = createNewConversation();
+        conv.chatbotId = bot.id;
+        setConversation(conv);
+      } catch {
+        // Chatbot not found, redirect to selector
+        router.push("/");
+      }
+    }
+    loadChatbot();
+  }, [chatbotSlug, router]);
+
+  // Load conversations from localStorage (filtered by chatbot)
+  useEffect(() => {
+    const allConvs = getConversations();
+    if (chatbot) {
+      setConversations(allConvs.filter((c) => c.chatbotId === chatbot.id));
+    } else {
+      setConversations(allConvs);
+    }
+  }, [chatbot]);
 
   const handleSend = useCallback(
     async (message: string) => {
@@ -57,7 +110,8 @@ export function ChatContainer() {
         const { reader } = sendChatMessage(
           message,
           history,
-          conversation.id
+          conversation.id,
+          chatbot?.id
         );
         const decoder = new TextDecoder();
         let fullContent = "";
@@ -81,9 +135,8 @@ export function ChatContainer() {
                 fullContent += data.content;
                 setConversation((prev) => {
                   const msgs = [...prev.messages];
-                  const last = msgs[msgs.length - 1];
                   msgs[msgs.length - 1] = {
-                    ...last,
+                    ...msgs[msgs.length - 1],
                     content: fullContent,
                     isStreaming: true,
                   };
@@ -117,7 +170,12 @@ export function ChatContainer() {
             updatedAt: new Date().toISOString(),
           };
           saveConversation(updated);
-          setConversations(getConversations());
+          const allConvs = getConversations();
+          if (chatbot) {
+            setConversations(allConvs.filter((c) => c.chatbotId === chatbot.id));
+          } else {
+            setConversations(allConvs);
+          }
           return updated;
         });
       } catch (error) {
@@ -137,11 +195,14 @@ export function ChatContainer() {
         setIsStreaming(false);
       }
     },
-    [conversation, isStreaming]
+    [conversation, isStreaming, chatbot]
   );
 
   const handleNewChat = () => {
     const newConv = createNewConversation();
+    if (chatbot) {
+      newConv.chatbotId = chatbot.id;
+    }
     setConversation(newConv);
   };
 
@@ -152,11 +213,20 @@ export function ChatContainer() {
 
   const handleDeleteConversation = (id: string) => {
     deleteConversation(id);
-    setConversations(getConversations());
+    const allConvs = getConversations();
+    if (chatbot) {
+      setConversations(allConvs.filter((c) => c.chatbotId === chatbot.id));
+    } else {
+      setConversations(allConvs);
+    }
     if (conversation.id === id) {
-      setConversation(createNewConversation());
+      handleNewChat();
     }
   };
+
+  const slug = chatbot?.slug || "";
+  const icon = SLUG_ICONS[slug] || <Bot className="h-4 w-4" />;
+  const badgeClass = SLUG_BADGE_COLORS[slug] || "bg-gray-100 text-gray-700";
 
   return (
     <div className="flex h-screen">
@@ -208,11 +278,29 @@ export function ChatContainer() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => router.push("/")}
+            title="チャットボット選択に戻る"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setShowHistory(!showHistory)}
           >
             <History className="h-4 w-4" />
           </Button>
-          <h1 className="text-sm font-medium">社内文書チャットボット</h1>
+          <div className="flex items-center gap-2">
+            {icon}
+            <h1 className="text-sm font-medium">
+              {chatbot?.name || "チャットボット"}
+            </h1>
+            {chatbot && (
+              <Badge className={`${badgeClass} text-[10px]`}>
+                閾値 {Math.round(chatbot.similarity_threshold * 100)}%
+              </Badge>
+            )}
+          </div>
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={handleNewChat}>
             <Plus className="mr-1 h-3 w-3" />
@@ -223,7 +311,11 @@ export function ChatContainer() {
         {/* Messages or suggestions */}
         {conversation.messages.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
-            <SuggestedQuestions onSelect={handleSend} />
+            <SuggestedQuestions
+              onSelect={handleSend}
+              chatbotName={chatbot?.name}
+              chatbotDescription={chatbot?.description}
+            />
           </div>
         ) : (
           <MessageList messages={conversation.messages} />

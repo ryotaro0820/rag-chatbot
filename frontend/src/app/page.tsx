@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ChatbotSelector } from "@/components/chat/chatbot-selector";
 
 export default function Home() {
-  redirect("/chat");
+  return <ChatbotSelector />;
 }
