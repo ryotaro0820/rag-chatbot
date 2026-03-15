@@ -1,7 +1,54 @@
 -- ============================================================
--- チャットボット設定テーブル（既存の場合はスキップ）
+-- RAG チャットボット - Supabase 完全セットアップSQL
+-- このファイルをSupabase SQL Editorに貼り付けて実行してください
 -- ============================================================
 
+-- 1. pgvector拡張を有効化
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 2. カテゴリテーブル
+CREATE TABLE IF NOT EXISTS categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. 文書メタデータ
+CREATE TABLE IF NOT EXISTS documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename TEXT NOT NULL,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    file_size INTEGER,
+    chunk_count INTEGER,
+    storage_path TEXT,
+    version INTEGER DEFAULT 1,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. 文書チャンク + ベクトル
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    page_numbers TEXT,
+    embedding VECTOR(1536)
+);
+
+-- 5. ベクトル検索用インデックス（既にある場合はスキップ）
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_document_chunks_embedding') THEN
+        CREATE INDEX idx_document_chunks_embedding ON document_chunks
+            USING ivfflat (embedding vector_cosine_ops)
+            WITH (lists = 100);
+    END IF;
+EXCEPTION WHEN others THEN
+    -- チャンク数が少ない場合ivfflatインデックスはエラーになる場合があるので無視
+    RAISE NOTICE 'ivfflat index creation skipped: %', SQLERRM;
+END $$;
+
+-- 6. チャットボット設定テーブル
 CREATE TABLE IF NOT EXISTS chatbots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -16,14 +63,28 @@ CREATE TABLE IF NOT EXISTS chatbots (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- チャットボットと文書の紐付け（多対多）
+-- 7. チャットボットと文書の紐付け
 CREATE TABLE IF NOT EXISTS chatbot_documents (
     chatbot_id UUID NOT NULL REFERENCES chatbots(id) ON DELETE CASCADE,
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     PRIMARY KEY (chatbot_id, document_id)
 );
 
--- chat_logs に chatbot_id カラムを追加（既存カラムがない場合）
+-- 8. チャットログ
+CREATE TABLE IF NOT EXISTS chat_logs (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    client_ip TEXT,
+    user_message TEXT NOT NULL,
+    assistant_message TEXT,
+    source_documents JSONB,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    chatbot_id UUID REFERENCES chatbots(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- chatbot_id カラムが既存テーブルにない場合追加
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -34,9 +95,62 @@ BEGIN
     END IF;
 END $$;
 
+-- 9. フィードバック
+CREATE TABLE IF NOT EXISTS feedback (
+    id BIGSERIAL PRIMARY KEY,
+    chat_log_id BIGINT NOT NULL REFERENCES chat_logs(id),
+    rating TEXT CHECK(rating IN ('up', 'down')),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. API使用量 (日次集計)
+CREATE TABLE IF NOT EXISTS usage_daily (
+    date DATE PRIMARY KEY,
+    total_requests INTEGER DEFAULT 0,
+    total_prompt_tokens INTEGER DEFAULT 0,
+    total_completion_tokens INTEGER DEFAULT 0,
+    total_embedding_tokens INTEGER DEFAULT 0,
+    estimated_cost_usd REAL DEFAULT 0.0
+);
+
 -- ============================================================
--- chatbot_id に紐づく文書のみを対象にベクトル検索する関数
+-- RPC関数
 -- ============================================================
+
+-- 全体検索用
+CREATE OR REPLACE FUNCTION match_chunks(
+    query_embedding VECTOR(1536),
+    match_count INT DEFAULT 8,
+    match_threshold FLOAT DEFAULT 0.3
+)
+RETURNS TABLE (
+    id UUID,
+    document_id UUID,
+    content TEXT,
+    page_numbers TEXT,
+    filename TEXT,
+    similarity FLOAT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        dc.id,
+        dc.document_id,
+        dc.content,
+        dc.page_numbers,
+        d.filename,
+        (1 - (dc.embedding <=> query_embedding))::FLOAT AS similarity
+    FROM document_chunks dc
+    JOIN documents d ON dc.document_id = d.id
+    WHERE 1 - (dc.embedding <=> query_embedding) > match_threshold
+    ORDER BY dc.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;
+
+-- チャットボット別検索用
 CREATE OR REPLACE FUNCTION match_chunks_for_chatbot(
     query_embedding VECTOR(1536),
     match_count INT DEFAULT 8,
@@ -76,42 +190,11 @@ BEGIN
 END;
 $$;
 
--- match_chunks 関数も閾値を更新
-CREATE OR REPLACE FUNCTION match_chunks(
-    query_embedding VECTOR(1536),
-    match_count INT DEFAULT 8,
-    match_threshold FLOAT DEFAULT 0.3
-)
-RETURNS TABLE (
-    id UUID,
-    document_id UUID,
-    content TEXT,
-    page_numbers TEXT,
-    filename TEXT,
-    similarity FLOAT
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        dc.id,
-        dc.document_id,
-        dc.content,
-        dc.page_numbers,
-        d.filename,
-        (1 - (dc.embedding <=> query_embedding))::FLOAT AS similarity
-    FROM document_chunks dc
-    JOIN documents d ON dc.document_id = d.id
-    WHERE 1 - (dc.embedding <=> query_embedding) > match_threshold
-    ORDER BY dc.embedding <=> query_embedding
-    LIMIT match_count;
-END;
-$$;
+-- ============================================================
+-- 3つの法令別チャットボット作成
+-- ============================================================
 
--- ============================================================
--- 既存のチャットボットデータを削除して、法令別3つを作成
--- ============================================================
+-- 既存データクリア（安全のため）
 DELETE FROM chatbot_documents;
 DELETE FROM chatbots;
 
@@ -178,14 +261,11 @@ INSERT INTO chatbots (name, slug, description, similarity_threshold, top_k, disp
 );
 
 -- ============================================================
--- 文書とチャットボットの紐付け
--- ※ 文書アップロード後に、管理画面から紐付けるか、
---   以下のように手動でSQLで紐付けてください。
---
--- 例: アップロード済み文書のfilenameで紐付け
+-- 文書とチャットボットの自動紐付け（ファイル名ベース）
+-- ※ 文書を再アップロードした後にもう一度この部分だけ実行してください
 -- ============================================================
 
--- ガス事業法の文書を紐付け
+-- ガス事業法
 INSERT INTO chatbot_documents (chatbot_id, document_id)
 SELECT c.id, d.id
 FROM chatbots c, documents d
@@ -193,7 +273,7 @@ WHERE c.slug = 'gas-business'
   AND d.filename ILIKE '%ガス事業法%'
 ON CONFLICT DO NOTHING;
 
--- 液化石油ガス法の文書を紐付け
+-- 液化石油ガス法
 INSERT INTO chatbot_documents (chatbot_id, document_id)
 SELECT c.id, d.id
 FROM chatbots c, documents d
@@ -201,7 +281,7 @@ WHERE c.slug = 'lpg-law'
   AND (d.filename ILIKE '%液化石油ガス%' OR d.filename ILIKE '%液化ガス%')
 ON CONFLICT DO NOTHING;
 
--- 高圧ガス保安法の文書を紐付け
+-- 高圧ガス保安法
 INSERT INTO chatbot_documents (chatbot_id, document_id)
 SELECT c.id, d.id
 FROM chatbots c, documents d
@@ -209,8 +289,10 @@ WHERE c.slug = 'high-pressure-gas'
   AND d.filename ILIKE '%高圧ガス保安法%'
 ON CONFLICT DO NOTHING;
 
--- 確認用クエリ
-SELECT c.name, c.slug, d.filename
+-- ============================================================
+-- 確認
+-- ============================================================
+SELECT c.name AS chatbot_name, c.slug, d.filename AS linked_document
 FROM chatbots c
 LEFT JOIN chatbot_documents cd ON c.id = cd.chatbot_id
 LEFT JOIN documents d ON cd.document_id = d.id

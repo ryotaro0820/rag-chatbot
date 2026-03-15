@@ -44,8 +44,8 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
     supabase,
     message,
     history,
-    topK = 5,
-    threshold = 0.7,
+    topK = 8,
+    threshold = 0.3,
     chatbotId,
     systemPromptOverride,
   } = options;

@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
     const openaiClient = getOpenAI();
 
     // チャットボット設定を取得
-    let topK = 5;
-    let threshold = 0.7;
+    let topK = 8;
+    let threshold = 0.3;
     let systemPrompt: string | null = null;
 
     if (chatbot_id) {
