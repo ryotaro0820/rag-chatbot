@@ -56,3 +56,37 @@ export async function deleteFile(
   const { error } = await supabase.storage.from(BUCKET).remove([path]);
   if (error) throw new Error(`ファイル削除エラー: ${error.message}`);
 }
+
+/**
+ * ブラウザから直接アップロードできる署名付きURLを発行する。
+ * Vercelの4.5MBリクエストボディ上限を回避するため、サーバー経由ではなくクライアントが
+ * Supabase Storageに直接PUTする目的で使う。
+ */
+export async function createSignedUpload(
+  supabase: SupabaseClient,
+  path: string
+): Promise<{ signedUrl: string; token: string; path: string }> {
+  await ensureBucket(supabase);
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUploadUrl(path);
+  if (error || !data) {
+    throw new Error(`署名URL発行エラー: ${error?.message ?? "unknown"}`);
+  }
+  return { signedUrl: data.signedUrl, token: data.token, path: data.path };
+}
+
+/**
+ * 保存済みファイルをBufferとして取得する。
+ */
+export async function downloadFile(
+  supabase: SupabaseClient,
+  path: string
+): Promise<Buffer> {
+  const { data, error } = await supabase.storage.from(BUCKET).download(path);
+  if (error || !data) {
+    throw new Error(`ファイル取得エラー: ${error?.message ?? "not found"}`);
+  }
+  return Buffer.from(await data.arrayBuffer());
+}
