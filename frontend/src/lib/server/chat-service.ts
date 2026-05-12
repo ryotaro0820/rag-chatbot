@@ -3,12 +3,27 @@ import type OpenAI from "openai";
 import { searchByDocument, generateQueryEmbedding, type ChunkResult } from "./vector-store";
 
 const DEFAULT_SYSTEM_PROMPT = `あなたは社内文書に基づいて質問に答えるアシスタントです。
-以下の参考情報をもとに、正確かつ具体的に回答してください。
-参考情報に含まれない内容については、「この情報は提供された文書には含まれていません」と正直に伝えてください。
-回答の際は、どの文書のどの部分を参考にしたかを明示してください。
+
+【回答ルール】
+- 3〜5行で端的に回答すること（長文禁止）
+- 箇条書きを活用し、要点のみ伝える
+- 参考情報に含まれない内容は「この文書には該当する情報がありません」と答える
+- 文書名やページ番号の明示は不要（参照元は別途表示される）
 
 【参考情報】
 {context}`;
+
+/**
+ * ファイル名から法令グループ名を判定する。
+ * 同じ法令に属する文書は 1 タブにまとめて回答する。
+ */
+function getLawGroup(filename: string): string {
+  if (filename.includes("ガス事業法")) return "ガス事業法";
+  if (filename.includes("液化")) return "液化石油ガス法";
+  if (filename.includes("高圧ガス")) return "高圧ガス保安法";
+  // それ以外はファイル名そのまま（拡張子・suffix除去）
+  return filename.replace(/\.[^.]+$/, "").replace(/[＿_].*$/, "");
+}
 
 function buildContext(chunks: ChunkResult[]): string {
   if (chunks.length === 0) {
@@ -45,7 +60,7 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
     message,
     history,
     topK = 8,
-    threshold = 0.3,
+    threshold = 0.2,
     systemPromptOverride,
   } = options;
 
@@ -74,56 +89,84 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
         const { embedding: queryEmbedding, tokens: embeddingTokens } =
           await generateQueryEmbedding(openaiClient, message);
 
+        // Step 3: Search ALL documents in parallel (big speed win)
+        const searchResults = await Promise.all(
+          documents.map((doc) =>
+            searchByDocument(
+              supabase,
+              openaiClient,
+              message,
+              doc.id,
+              topK,
+              threshold,
+              queryEmbedding
+            )
+          )
+        );
+
+        // Step 3.5: 法令グループ単位にチャンクを集約
+        // - 同一法令に属する複数文書のヒットチャンクを統合し、類似度上位 topK のみ採用
+        // - 各グループは UI 上 1 タブとして表示される
+        const groups: Map<
+          string,
+          { firstDocId: string; chunks: ChunkResult[] }
+        > = new Map();
+        const groupOrder: string[] = [];
+        for (let i = 0; i < documents.length; i++) {
+          const doc = documents[i];
+          const groupName = getLawGroup(doc.filename);
+          if (!groups.has(groupName)) {
+            groups.set(groupName, { firstDocId: doc.id, chunks: [] });
+            groupOrder.push(groupName);
+          }
+          groups.get(groupName)!.chunks.push(...searchResults[i].chunks);
+        }
+        // グループ内で類似度降順に並べ、上位 topK のみ残す
+        for (const g of groups.values()) {
+          g.chunks.sort((a, b) => b.similarity - a.similarity);
+          g.chunks = g.chunks.slice(0, topK);
+        }
+
         let totalPromptTokens = 0;
         let totalCompletionTokens = 0;
         const docResults: { document_id: string; filename: string; full_response: string }[] = [];
 
-        // Step 3: For each document, search and generate response
-        for (let docIndex = 0; docIndex < documents.length; docIndex++) {
-          const doc = documents[docIndex];
+        // Step 4: 法令グループごとに 1 つの統合回答を生成してストリーミング
+        for (let gi = 0; gi < groupOrder.length; gi++) {
+          const groupName = groupOrder[gi];
+          const { firstDocId, chunks } = groups.get(groupName)!;
 
-          // Signal document start
+          // タブ開始イベント（filename にはグループ名を入れて UI のラベルに使う）
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: "doc_start",
-                doc_index: docIndex,
-                document_id: doc.id,
-                filename: doc.filename,
+                doc_index: gi,
+                document_id: firstDocId,
+                filename: groupName,
               })}\n\n`
             )
           );
 
-          // Search within this document
-          const { chunks } = await searchByDocument(
-            supabase,
-            openaiClient,
-            message,
-            doc.id,
-            topK,
-            threshold,
-            queryEmbedding
-          );
-
-          // If no chunks found, send a quick message and move on
+          // チャンクが無ければスキップ
           if (chunks.length === 0) {
             const noResultMsg = "この文書には関連する情報が見つかりませんでした。";
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ type: "chunk", content: noResultMsg, doc_index: docIndex })}\n\n`
+                `data: ${JSON.stringify({ type: "chunk", content: noResultMsg, doc_index: gi })}\n\n`
               )
             );
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ type: "doc_sources", doc_index: docIndex, sources: [] })}\n\n`
+                `data: ${JSON.stringify({ type: "doc_sources", doc_index: gi, sources: [] })}\n\n`
               )
             );
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ type: "doc_done", doc_index: docIndex, full_response: noResultMsg })}\n\n`
+                `data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: noResultMsg })}\n\n`
               )
             );
-            docResults.push({ document_id: doc.id, filename: doc.filename, full_response: noResultMsg });
+            docResults.push({ document_id: firstDocId, filename: groupName, full_response: noResultMsg });
             continue;
           }
 
@@ -132,7 +175,6 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           const basePrompt = systemPromptOverride || DEFAULT_SYSTEM_PROMPT;
           const systemPrompt = basePrompt.replace("{context}", context);
 
-          // Build messages
           const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
             { role: "system", content: systemPrompt },
           ];
@@ -144,7 +186,6 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           }
           messages.push({ role: "user", content: message });
 
-          // Call OpenAI
           const stream = await openaiClient.chat.completions.create({
             model: "gpt-5-nano",
             messages,
@@ -166,7 +207,7 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
               fullResponse += content;
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "chunk", content, doc_index: docIndex })}\n\n`
+                  `data: ${JSON.stringify({ type: "chunk", content, doc_index: gi })}\n\n`
                 )
               );
             }
@@ -175,7 +216,7 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           totalPromptTokens += promptTokens;
           totalCompletionTokens += completionTokens;
 
-          // Send sources
+          // 参照元はグループ内の実ファイル名のままユーザーに表示する
           const sources = chunks.map((c) => ({
             document_id: c.document_id,
             filename: c.filename,
@@ -185,18 +226,17 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           }));
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "doc_sources", doc_index: docIndex, sources })}\n\n`
+              `data: ${JSON.stringify({ type: "doc_sources", doc_index: gi, sources })}\n\n`
             )
           );
 
-          // Signal document done
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "doc_done", doc_index: docIndex, full_response: fullResponse })}\n\n`
+              `data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: fullResponse })}\n\n`
             )
           );
 
-          docResults.push({ document_id: doc.id, filename: doc.filename, full_response: fullResponse });
+          docResults.push({ document_id: firstDocId, filename: groupName, full_response: fullResponse });
         }
 
         // Final done signal
