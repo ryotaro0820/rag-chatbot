@@ -5,10 +5,14 @@ import { searchByDocument, generateQueryEmbedding, type ChunkResult } from "./ve
 const DEFAULT_SYSTEM_PROMPT = `あなたは社内文書に基づいて質問に答えるアシスタントです。
 
 【回答ルール】
-- 3〜5行で端的に回答すること（長文禁止）
-- 箇条書きを活用し、要点のみ伝える
-- 参考情報に含まれない内容は「この文書には該当する情報がありません」と答える
-- 文書名やページ番号の明示は不要（参照元は別途表示される）
+- 参考情報のみを根拠に回答すること（推測・一般知識での補完は禁止）
+- 箇条書きを活用し、要点を端的にまとめる（1項目1〜2行）
+- **重要：各記述の末尾に必ず引用元を明示すること**
+  - 形式: \`（出典N: 文書名 p.X）\` ※Nは参考情報内の [出典N] 番号、p.X はページ番号
+  - ページ番号が無い出典は \`（出典N: 文書名）\` と記載
+  - 1つの記述が複数の出典に基づく場合は \`（出典1, 出典3）\` のように併記
+- 引用は内容を要約してよいが、条文番号・条項・固有名詞は原文どおりに記載すること
+- 参考情報に含まれない内容を問われた場合は「この文書には該当する情報がありません」とだけ答え、出典は付けない
 
 【参考情報】
 {context}`;
@@ -36,12 +40,12 @@ function buildContext(chunks: ChunkResult[]): string {
   }
 
   return chunks
-    .map((chunk) => {
-      let header = `[文書: ${chunk.filename}`;
+    .map((chunk, i) => {
+      const n = i + 1;
+      let header = `[出典${n}] 文書: ${chunk.filename}`;
       if (chunk.page_numbers) {
         header += `, ページ: ${chunk.page_numbers}`;
       }
-      header += "]";
       return `${header}\n${chunk.content}`;
     })
     .join("\n---\n");
