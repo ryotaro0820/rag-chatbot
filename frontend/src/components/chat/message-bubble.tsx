@@ -3,7 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronUp, FileText, User, Bot } from "lucide-react";
+import { ChevronDown, ChevronUp, FileText, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeedbackButtons } from "./feedback-buttons";
@@ -44,9 +44,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
     return (
       <div className="flex gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-          <Bot className="h-4 w-4" />
-        </div>
+        <img
+          src="/dog-avatar.png"
+          alt="アシスタント"
+          className="h-10 w-10 shrink-0 rounded-full object-cover bg-white"
+        />
 
         <div className="flex max-w-[85%] flex-col gap-2 flex-1">
           {/* Document tabs */}
@@ -148,13 +150,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   // Standard single message (user or old format)
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          isUser ? "bg-primary text-primary-foreground" : "bg-muted"
-        }`}
-      >
-        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-      </div>
+      {isUser ? (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+          <User className="h-4 w-4" />
+        </div>
+      ) : (
+        <img
+          src="/dog-avatar.png"
+          alt="アシスタント"
+          className="h-10 w-10 shrink-0 rounded-full object-cover bg-white"
+        />
+      )}
 
       <div className={`flex max-w-[80%] flex-col gap-1 ${isUser ? "items-end" : ""}`}>
         <div
