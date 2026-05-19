@@ -32,6 +32,39 @@ interface MessageBubbleProps {
   message: ChatMessage;
 }
 
+/**
+ * Render markdown with smaller, muted styling on citation lines (出典：...).
+ * Also forces a paragraph break before each 出典 so it never inlines with the
+ * preceding sentence even when the model omits the blank line.
+ */
+function MarkdownWithCitations({ content }: { content: string }) {
+  const processed = content.replace(/\s*\n\s*(出典[：:])/g, "\n\n$1");
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children, ...props }) => {
+          const first = Array.isArray(children) ? children[0] : children;
+          const text = typeof first === "string" ? first : "";
+          if (/^\s*出典[：:]/.test(text)) {
+            return (
+              <p
+                className="!text-xs !text-muted-foreground !my-1 leading-snug"
+                {...props}
+              >
+                {children}
+              </p>
+            );
+          }
+          return <p {...props}>{children}</p>;
+        },
+      }}
+    >
+      {processed}
+    </ReactMarkdown>
+  );
+}
+
 export function MessageBubble({ message }: MessageBubbleProps) {
   const [showSources, setShowSources] = useState(false);
   const [activeDocIndex, setActiveDocIndex] = useState(0);
@@ -85,9 +118,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 </div>
               ) : (
                 <div className="prose prose-sm max-w-none dark:prose-invert">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {activeDoc.content}
-                  </ReactMarkdown>
+                  <MarkdownWithCitations content={activeDoc.content} />
                 </div>
               )}
             </div>
@@ -177,9 +208,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             </div>
           ) : (
             <div className="prose prose-sm max-w-none dark:prose-invert">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {message.content}
-              </ReactMarkdown>
+              <MarkdownWithCitations content={message.content} />
             </div>
           )}
         </div>
