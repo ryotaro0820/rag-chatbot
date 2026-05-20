@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   History,
@@ -52,6 +52,7 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const abortRef = useRef<(() => void) | null>(null);
 
   // Load chatbot config
   useEffect(() => {
@@ -102,20 +103,22 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
       setConversation((prev) => ({ ...prev, messages: updatedMessages }));
       setIsStreaming(true);
 
+      const docResponses: DocResponse[] = [];
+
       try {
         const history = conversation.messages.map((m) => ({
           role: m.role,
           content: m.content,
         }));
 
-        const { reader } = sendChatMessage(
+        const { reader, abort } = sendChatMessage(
           message,
           history,
           conversation.id,
           chatbot?.id
         );
+        abortRef.current = abort;
         const decoder = new TextDecoder();
-        const docResponses: DocResponse[] = [];
         let chatLogId: number | undefined;
 
         while (true) {
@@ -222,24 +225,46 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
           return updated;
         });
       } catch (error) {
+        const isAbort =
+          (error instanceof DOMException && error.name === "AbortError") ||
+          (error instanceof Error &&
+            error.message.toLowerCase().includes("abort"));
+
         setConversation((prev) => {
           const msgs = [...prev.messages];
-          msgs[msgs.length - 1] = {
-            role: "assistant",
-            content:
-              error instanceof Error
-                ? `エラー: ${error.message}`
-                : "エラーが発生しました。もう一度お試しください。",
-            isStreaming: false,
-          };
+          const last = msgs[msgs.length - 1];
+          if (isAbort) {
+            // Keep whatever was streamed before cancel; otherwise mark cancelled
+            const hasPartial = docResponses.some((d) => d?.content);
+            msgs[msgs.length - 1] = {
+              ...last,
+              content: hasPartial ? last.content : "（キャンセルしました）",
+              docResponses: [...docResponses],
+              isStreaming: false,
+            };
+          } else {
+            msgs[msgs.length - 1] = {
+              role: "assistant",
+              content:
+                error instanceof Error
+                  ? `エラー: ${error.message}`
+                  : "エラーが発生しました。もう一度お試しください。",
+              isStreaming: false,
+            };
+          }
           return { ...prev, messages: msgs };
         });
       } finally {
+        abortRef.current = null;
         setIsStreaming(false);
       }
     },
     [conversation, isStreaming, chatbot]
   );
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.();
+  }, []);
 
   const handleNewChat = () => {
     const newConv = createNewConversation();
@@ -366,7 +391,12 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
 
         {/* Input */}
         <div className="mx-auto w-full max-w-3xl">
-          <ChatInput onSend={handleSend} disabled={isStreaming} />
+          <ChatInput
+            onSend={handleSend}
+            onStop={handleStop}
+            isStreaming={isStreaming}
+            disabled={isStreaming}
+          />
         </div>
       </div>
     </div>

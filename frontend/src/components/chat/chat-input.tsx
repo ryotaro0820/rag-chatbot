@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useRef, type KeyboardEvent } from "react";
-import { Send } from "lucide-react";
+import { Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
+  onStop?: () => void;
+  isStreaming?: boolean;
   disabled?: boolean;
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,14 +43,26 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         rows={1}
         disabled={disabled}
       />
-      <Button
-        onClick={handleSend}
-        disabled={!input.trim() || disabled}
-        size="icon"
-        className="shrink-0"
-      >
-        <Send className="h-4 w-4" />
-      </Button>
+      {isStreaming ? (
+        <Button
+          onClick={onStop}
+          size="icon"
+          variant="destructive"
+          className="shrink-0"
+          title="生成を停止"
+        >
+          <Square className="h-4 w-4" />
+        </Button>
+      ) : (
+        <Button
+          onClick={handleSend}
+          disabled={!input.trim() || disabled}
+          size="icon"
+          className="shrink-0"
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   );
 }
