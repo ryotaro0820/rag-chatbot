@@ -211,7 +211,6 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           const stream = await openaiClient.chat.completions.create({
             model: "gpt-5-nano",
             messages,
-            temperature: 0,
             seed: 42,
             stream: true,
             stream_options: { include_usage: true },
