@@ -11,6 +11,14 @@ export async function POST() {
     maxAge: 0, // 即座に削除
   });
 
+  response.cookies.set("admin_refresh", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/",
+    maxAge: 0,
+  });
+
   response.cookies.set("admin_email", "", {
     httpOnly: false,
     secure: process.env.NODE_ENV === "production",

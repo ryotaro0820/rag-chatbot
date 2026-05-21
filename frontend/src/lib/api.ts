@@ -9,14 +9,41 @@ import type {
   Chatbot,
 } from "@/types";
 
+/** access_token失効時の同時リフレッシュを1回にまとめる */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch("/api/admin/refresh", {
+      method: "POST",
+      credentials: "include",
+    })
+      .then((res) => res.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
 /**
- * 認証付きfetch（HttpOnly Cookieを自動送信）
+ * 認証付きfetch（HttpOnly Cookieを自動送信）。
+ * 401が返ったら refresh_token で再発行を試み、成功すれば元リクエストを1回リトライする。
  */
-function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(url, {
-    ...options,
-    credentials: "include", // HttpOnly Cookieを送信
-  });
+async function authFetch(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const res = await fetch(url, { ...options, credentials: "include" });
+
+  if (res.status !== 401) return res;
+
+  // 401: access_token失効の可能性 → リフレッシュして1回だけリトライ
+  const refreshed = await tryRefreshSession();
+  if (!refreshed) return res;
+
+  return fetch(url, { ...options, credentials: "include" });
 }
 
 // --- Admin Auth ---

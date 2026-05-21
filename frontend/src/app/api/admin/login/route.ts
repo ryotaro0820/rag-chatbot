@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = data.session.access_token;
+    const refreshToken = data.session.refresh_token;
     const userEmail = data.user.email || email;
 
     // HttpOnly Cookie にトークンを設定（XSSからの保護）
@@ -68,8 +69,19 @@ export async function POST(request: NextRequest) {
       secure: isProduction,
       sameSite: "strict",
       path: "/",
-      maxAge: 60 * 60, // 1時間
+      maxAge: 60 * 60, // 1時間（access_tokenの寿命に合わせる）
     });
+
+    // refresh_token は長期保存し、access_token失効時の自動再発行に使う
+    if (refreshToken) {
+      response.cookies.set("admin_refresh", refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: "strict",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30, // 30日
+      });
+    }
 
     // メールアドレスはJSから読めるCookieに（UI表示用のみ）
     response.cookies.set("admin_email", userEmail, {
@@ -77,7 +89,7 @@ export async function POST(request: NextRequest) {
       secure: isProduction,
       sameSite: "strict",
       path: "/",
-      maxAge: 60 * 60,
+      maxAge: 60 * 60 * 24 * 30,
     });
 
     return response;

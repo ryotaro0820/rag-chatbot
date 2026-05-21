@@ -89,6 +89,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/api/admin/") &&
     !pathname.startsWith("/api/admin/login") &&
     !pathname.startsWith("/api/admin/logout") &&
+    !pathname.startsWith("/api/admin/refresh") &&
     !pathname.startsWith("/api/admin/me")
   ) {
     const token = getAdminToken(request);
