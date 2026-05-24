@@ -10,8 +10,8 @@ import {
   Shield,
   Search,
   Telescope,
-  Bot,
 } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MessageList } from "./message-list";
@@ -169,6 +169,15 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
               } else if (data.type === "doc_sources") {
                 if (docResponses[data.doc_index]) {
                   docResponses[data.doc_index].sources = data.sources;
+                  setConversation((prev) => {
+                    const msgs = [...prev.messages];
+                    msgs[msgs.length - 1] = {
+                      ...msgs[msgs.length - 1],
+                      docResponses: [...docResponses],
+                      isStreaming: true,
+                    };
+                    return { ...prev, messages: msgs };
+                  });
                 }
               } else if (data.type === "doc_done") {
                 if (docResponses[data.doc_index]) {
@@ -293,7 +302,7 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
   };
 
   const slug = chatbot?.slug || "";
-  const icon = SLUG_ICONS[slug] || <Bot className="h-4 w-4" />;
+  const icon = SLUG_ICONS[slug] || <Image src="/chatbot-avatar.png" alt="チャットボット" width={24} height={24} className="h-6 w-6 object-cover" />;
   const badgeClass = SLUG_BADGE_COLORS[slug] || "bg-gray-100 text-gray-700";
 
   return (

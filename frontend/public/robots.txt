@@ -2,3 +2,5 @@ User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /api/
+
+Sitemap: https://frontend-nu-one-61.vercel.app/sitemap.xml

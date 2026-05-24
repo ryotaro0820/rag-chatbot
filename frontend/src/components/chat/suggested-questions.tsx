@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare } from "lucide-react";
+import Image from "next/image";
 
 const SUGGESTIONS = [
   "ガス事業者の許可要件は？",
@@ -23,7 +23,7 @@ export function SuggestedQuestions({
   return (
     <div className="flex flex-col items-center gap-6 py-12">
       <div className="flex flex-col items-center gap-2">
-        <MessageSquare className="h-12 w-12 text-muted-foreground" />
+        <Image src="/chatbot-avatar.png" alt="チャットボット" width={64} height={64} className="h-16 w-16 object-cover" />
         <h2 className="text-xl font-semibold">
           {chatbotName || "社内文書チャットボット"}
         </h2>

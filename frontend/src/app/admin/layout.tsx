@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, BarChart3, Bot, LogOut } from "lucide-react";
+import { FileText, BarChart3, Bot, LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoginForm } from "@/components/admin/login-form";
 
@@ -89,6 +89,15 @@ export default function AdminLayout({
           >
             <BarChart3 className="mr-1 h-4 w-4" />
             ダッシュボード
+          </Button>
+        </Link>
+        <Link href="/admin/users">
+          <Button
+            variant={pathname === "/admin/users" ? "secondary" : "ghost"}
+            size="sm"
+          >
+            <Users className="mr-1 h-4 w-4" />
+            管理者
           </Button>
         </Link>
         <span className="text-sm text-muted-foreground shrink-0">{email}</span>

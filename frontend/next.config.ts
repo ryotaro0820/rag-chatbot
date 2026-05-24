@@ -21,7 +21,7 @@ const securityHeaders = [
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",
   },
-  // HSTS（HTTPS強制）
+  // HSTS（HTTPS強制）- 2年間 + preload申請対応
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
@@ -29,25 +29,39 @@ const securityHeaders = [
   // パーミッションポリシー（不要なブラウザ機能を無効化）
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+    value: "camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
   },
-  // CSP（Content Security Policy）
+  // CSP（Content Security Policy）- 厳格化
   {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob:",
-      "connect-src 'self' https://*.supabase.co https://api.openai.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' https://*.supabase.co",
       "frame-src 'none'",
       "frame-ancestors 'none'",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
       "upgrade-insecure-requests",
+      "block-all-mixed-content",
     ].join("; "),
+  },
+  // Cross-Origin セキュリティ
+  {
+    key: "Cross-Origin-Opener-Policy",
+    value: "same-origin",
+  },
+  {
+    key: "Cross-Origin-Resource-Policy",
+    value: "same-origin",
+  },
+  {
+    key: "Cross-Origin-Embedder-Policy",
+    value: "credentialless",
   },
 ];
 
@@ -66,6 +80,20 @@ const nextConfig: NextConfig = {
           {
             key: "X-Robots-Tag",
             value: "noindex, nofollow",
+          },
+        ],
+      },
+      // APIエンドポイントのキャッシュ無効化
+      {
+        source: "/api/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "no-store, no-cache, must-revalidate",
+          },
+          {
+            key: "X-Robots-Tag",
+            value: "noindex",
           },
         ],
       },
