@@ -157,7 +157,7 @@ INSERT INTO chatbots (name, slug, description, similarity_threshold, top_k, disp
     '厳密検索モード',
     'strict',
     '文書への一致率が高いものだけ回答します。正確性を重視する場合に最適です。',
-    0.5,
+    0.30,
     5,
     1,
     'あなたは法令文書に基づいて質問に答えるアシスタントです。
@@ -173,7 +173,7 @@ INSERT INTO chatbots (name, slug, description, similarity_threshold, top_k, disp
     '標準検索モード',
     'standard',
     '中程度の一致率でも回答します。バランスの取れた検索モードです。',
-    0.3,
+    0.15,
     8,
     2,
     'あなたは法令文書に基づいて質問に答えるアシスタントです。
@@ -188,7 +188,7 @@ INSERT INTO chatbots (name, slug, description, similarity_threshold, top_k, disp
     '広範検索モード',
     'broad',
     '一致率が低くても関連情報を幅広く抽出します。探索的な質問に最適です。',
-    0.15,
+    0.05,
     12,
     3,
     'あなたは法令文書に基づいて質問に答えるアシスタントです。
