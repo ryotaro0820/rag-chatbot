@@ -25,6 +25,11 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputPr
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // IME変換中（日本語などの変換確定）の Enter は送信しない。
+    // isComposing が標準。keyCode===229 / key==="Process" は一部ブラウザ向けの保険。
+    if (e.nativeEvent.isComposing || e.keyCode === 229 || e.key === "Process") {
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
