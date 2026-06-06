@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import { ChevronDown, ChevronUp, FileText, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,7 +42,7 @@ function MarkdownWithCitations({ content }: { content: string }) {
   const processed = content.replace(/\s*\n\s*(出典[：:])/g, "\n\n$1");
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkBreaks]}
       components={{
         p: ({ children, ...props }) => {
           const first = Array.isArray(children) ? children[0] : children;
