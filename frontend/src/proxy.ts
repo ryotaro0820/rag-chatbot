@@ -59,7 +59,7 @@ function getAdminToken(request: NextRequest): string | null {
   return null;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 定期クリーンアップ

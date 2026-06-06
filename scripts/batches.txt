@@ -1,0 +1,14 @@
+# 10並列バッチ割り当て（PDF1=8セッション、PDF2=2セッション）
+
+B01  pdf1  page    1 -  125  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B02  pdf1  page  126 -  250  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B03  pdf1  page  251 -  375  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B04  pdf1  page  376 -  500  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B05  pdf1  page  501 -  625  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B06  pdf1  page  626 -  750  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B07  pdf1  page  751 -  875  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B08  pdf1  page  876 - 1000  (全 125 ページ)  画像: pages/pdf1/page-XXXX.jpg  出力: output/json/pdf1/
+B09  pdf2  page    1 -  135  (全 135 ページ)  画像: pages/pdf2/page-XXX.jpg  出力: output/json/pdf2/
+B10  pdf2  page  136 -  270  (全 135 ページ)  画像: pages/pdf2/page-XXX.jpg  出力: output/json/pdf2/
+
+# 合計: 1270 ページ (10 セッション)

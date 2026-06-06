@@ -19,6 +19,15 @@ out/
 # Data
 backend/data/
 
+# OCR cache
+backend/.ocr_cache/
+
+# 生成データ: PDFコーパス・OCR/書き起こしパイプライン出力（数GB規模・再生成可能）
+pdfs/
+pdfs_word/
+pages/
+output/
+
 # IDE
 .vscode/
 .idea/

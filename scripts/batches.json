@@ -1,0 +1,102 @@
+[
+  {
+    "batch_id": "B01",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 1,
+    "end_page": 125,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B02",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 126,
+    "end_page": 250,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B03",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 251,
+    "end_page": 375,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B04",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 376,
+    "end_page": 500,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B05",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 501,
+    "end_page": 625,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B06",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 626,
+    "end_page": 750,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B07",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 751,
+    "end_page": 875,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B08",
+    "pdf": "pdf1",
+    "pages_dir": "pages/pdf1",
+    "page_pad": 4,
+    "json_out_dir": "output/json/pdf1",
+    "start_page": 876,
+    "end_page": 1000,
+    "page_count": 125
+  },
+  {
+    "batch_id": "B09",
+    "pdf": "pdf2",
+    "pages_dir": "pages/pdf2",
+    "page_pad": 3,
+    "json_out_dir": "output/json/pdf2",
+    "start_page": 1,
+    "end_page": 135,
+    "page_count": 135
+  },
+  {
+    "batch_id": "B10",
+    "pdf": "pdf2",
+    "pages_dir": "pages/pdf2",
+    "page_pad": 3,
+    "json_out_dir": "output/json/pdf2",
+    "start_page": 136,
+    "end_page": 270,
+    "page_count": 135
+  }
+]
