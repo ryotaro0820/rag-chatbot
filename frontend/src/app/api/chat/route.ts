@@ -1,10 +1,51 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { getSupabaseAdmin } from "@/lib/server/supabase";
 import { getOpenAI } from "@/lib/server/openai";
 import { createChatStream } from "@/lib/server/chat-service";
-import { trackUsage } from "@/lib/server/usage-tracker";
+import { trackUsage, isDailyBudgetExceeded } from "@/lib/server/usage-tracker";
 
 export const maxDuration = 300;
+
+const BUDGET_MESSAGE =
+  "本日の利用が混み合っているため、一時的に回答を停止しています。お手数ですが時間をおいて再度お試しください。";
+
+/**
+ * 通常の SSE 回答と同じ形式で 1 件のお知らせメッセージを返す。
+ * 上限到達時もフロントのチャット UI で自然なメッセージとして表示される。
+ */
+function noticeStream(messageText: string): ReadableStream {
+  const encoder = new TextEncoder();
+  const send = (obj: unknown) =>
+    encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        send({ type: "doc_start", doc_index: 0, document_id: "", filename: "お知らせ" })
+      );
+      controller.enqueue(send({ type: "chunk", content: messageText, doc_index: 0 }));
+      controller.enqueue(send({ type: "doc_sources", doc_index: 0, sources: [] }));
+      controller.enqueue(
+        send({ type: "doc_done", doc_index: 0, full_response: messageText })
+      );
+      controller.enqueue(
+        send({
+          type: "done",
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          embedding_tokens: 0,
+          documents: [{ document_id: "", filename: "お知らせ", full_response: messageText }],
+        })
+      );
+      controller.close();
+    },
+  });
+}
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+} as const;
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +60,11 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const openaiClient = getOpenAI();
+
+    // コスト上限チェック（認証なし公開のための安全弁）
+    if (await isDailyBudgetExceeded(supabase)) {
+      return new Response(noticeStream(BUDGET_MESSAGE), { headers: SSE_HEADERS });
+    }
 
     // チャットボット設定を取得
     let topK = 8;
@@ -59,23 +105,24 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       "unknown";
 
-    logChatInBackground(logStream, supabase, {
+    // ログ記録を after() に登録し、レスポンス完了までサーバーレス関数を
+    // 確実に生かしておく（未 await のままだと Vercel 上で途中終了し
+    // ログ・使用量記録が欠落する恐れがあるため）。
+    const logPromise = logChatInBackground(logStream, supabase, {
       sessionId: session_id,
       clientIp,
       userMessage: message,
       chatbotId: chatbot_id,
     });
+    after(logPromise);
 
-    return new Response(responseStream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
+    return new Response(responseStream, { headers: SSE_HEADERS });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : "サーバーエラー";
-    return new Response(JSON.stringify({ error: msg }), { status: 500 });
+    // 内部エラーの詳細はサーバーログにのみ出力し、クライアントには汎用文言を返す
+    console.error("Chat route error:", error);
+    return new Response(JSON.stringify({ error: "サーバーエラーが発生しました" }), {
+      status: 500,
+    });
   }
 }
 

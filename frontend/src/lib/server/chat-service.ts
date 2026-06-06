@@ -84,6 +84,7 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
     history,
     topK = 8,
     threshold = 0.2,
+    chatbotId,
     systemPromptOverride,
   } = options;
 
@@ -92,11 +93,33 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
   return new ReadableStream({
     async start(controller) {
       try {
-        // Step 1: Get all documents
-        const { data: documents, error: docError } = await supabase
-          .from("documents")
-          .select("id, filename")
-          .order("filename");
+        // Step 1: 対象文書を取得
+        // チャットボットに文書が割り当てられていればその文書のみに絞り込む。
+        // 割り当てが無い（＝既定の全社コーパス）場合は従来どおり全文書を検索する。
+        let assignedIds: string[] | null = null;
+        if (chatbotId) {
+          const { data: links, error: linkError } = await supabase
+            .from("chatbot_documents")
+            .select("document_id")
+            .eq("chatbot_id", chatbotId);
+          // 取得失敗時は全文書検索へフォールバック（fail-open）。
+          // 文書割り当ては関連性チューニング用であり権限境界ではない前提。
+          // 障害を見落とさないようログだけは残す。
+          if (linkError) {
+            console.error("chatbot_documents 取得エラー:", linkError.message);
+          }
+          if (links && links.length > 0) {
+            assignedIds = links.map((l) => l.document_id as string);
+          }
+        }
+
+        let docQuery = supabase.from("documents").select("id, filename");
+        if (assignedIds) {
+          docQuery = docQuery.in("id", assignedIds);
+        }
+        const { data: documents, error: docError } = await docQuery.order(
+          "filename"
+        );
 
         if (docError || !documents || documents.length === 0) {
           controller.enqueue(
@@ -278,10 +301,14 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
 
         controller.close();
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown error";
+        // 詳細はサーバーログにのみ残し、クライアントには汎用文言を返す
+        console.error("createChatStream error:", error);
         controller.enqueue(
           encoder.encode(
-            `data: ${JSON.stringify({ type: "error", message: msg })}\n\n`
+            `data: ${JSON.stringify({
+              type: "error",
+              message: "回答の生成中にエラーが発生しました。もう一度お試しください。",
+            })}\n\n`
           )
         );
         controller.close();

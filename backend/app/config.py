@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_key: str
     supabase_anon_key: str
-    supabase_jwt_secret: str
+    # 以下は旧 Web サーバー用。CLI 取り込みでは未使用のため任意（後方互換のため残置）。
+    supabase_jwt_secret: str = ""
     frontend_url: str = "http://localhost:3000"
     chunk_size: int = 500
     chunk_overlap: int = 100
