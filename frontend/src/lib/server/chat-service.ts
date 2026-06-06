@@ -41,6 +41,7 @@ const FORMAT_RULES = `
 【最優先の出力形式（必ず守る）】
 ・回答は必ず箇条書きにする。各項目の先頭に「・」を付ける（「-」「*」「1.」などの記号・番号は使わない）
 ・端的に答える。冗長な説明・前置き・背景説明はせず、要点のみを短く述べる
+・出典は各記述ごとに書かず、回答の最後にまとめて1回だけ記載する
 ・出典行（「出典：…」）には「・」を付けない`;
 
 /**
@@ -254,8 +255,9 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           let completionTokens = 0;
           let lineBuf = "";
           let started = false;
+          const citations: string[] = [];
 
-          // 表示を確定的に整える正規化（gpt-5-nano は「・」や改行指定を時々無視するため）:
+          // 表示を確定的に整える正規化（gpt-5-nano は指定を時々無視するため）:
           //  1) 行頭の箇条書き記号（- * • ‐ ・ ＋前後の空白）を必ず単一の「・」へ
           //  2) 行中の「空白＋・」を「改行＋・」へ＝各箇条書きを必ず改行で始める
           //     語中の中黒（例: 点検・検査）は前に空白が無いので影響しない
@@ -263,6 +265,15 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             line
               .replace(/^[ \t　]*[-*•‐・]+[ \t　]*/, "・")
               .replace(/[ \t　]+・[ \t　]*/g, "\n・");
+
+          // 本文中の「出典：…（行末まで）」を抜き出して収集し、本文からは除去する。
+          // 出典は各記述ごとではなく、回答の最後に 1 回だけまとめて表示する。
+          const stripCitations = (text: string) =>
+            text.replace(/[ \t　]*出典[：:][^\n]*/g, (m) => {
+              const c = m.replace(/^[\s]+/, "").trim();
+              if (c) citations.push(c);
+              return "";
+            });
 
           const emitChunk = (text: string) => {
             if (!text) return;
@@ -278,6 +289,14 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             );
           };
 
+          // 1 行（モデル出力の改行まで）を正規化＋出典除去して送出する
+          const emitLine = (rawLine: string) => {
+            let text = stripCitations(normalizeLine(rawLine));
+            text = text.replace(/\n{2,}/g, "\n"); // 出典除去で生じた空行を圧縮
+            if (text.replace(/\s/g, "") === "") return; // 中身が無ければ送らない
+            emitChunk(text);
+          };
+
           for await (const chunk of stream) {
             if (chunk.usage) {
               promptTokens = chunk.usage.prompt_tokens;
@@ -286,16 +305,22 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             const content = chunk.choices?.[0]?.delta?.content;
             if (!content) continue;
             lineBuf += content;
-            // 改行を含む完成した行を順に正規化して送出する
+            // 改行を含む完成した行を順に処理して送出する
             let nl = lineBuf.indexOf("\n");
             while (nl !== -1) {
-              emitChunk(normalizeLine(lineBuf.slice(0, nl + 1)));
+              emitLine(lineBuf.slice(0, nl + 1));
               lineBuf = lineBuf.slice(nl + 1);
               nl = lineBuf.indexOf("\n");
             }
           }
-          // 末尾の未完了行（改行なし）を送出
-          emitChunk(normalizeLine(lineBuf));
+          // 末尾の未完了行
+          emitLine(lineBuf);
+
+          // 収集した出典を末尾に 1 回だけまとめて表示（重複除去・出現順維持）
+          const uniqueCitations = [...new Set(citations)];
+          if (uniqueCitations.length > 0) {
+            emitChunk("\n\n" + uniqueCitations.join("\n"));
+          }
 
           // 参照元はグループ内の実ファイル名のままユーザーに表示する
           const sources = chunks.map((c) => ({
