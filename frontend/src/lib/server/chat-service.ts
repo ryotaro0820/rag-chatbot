@@ -173,62 +173,53 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           g.chunks = g.chunks.slice(0, topK);
         }
 
-        let totalPromptTokens = 0;
-        let totalCompletionTokens = 0;
-        const docResults: { document_id: string; filename: string; full_response: string }[] = [];
+        // Step 4: 法令グループごとに回答を生成。
+        // 各グループの LLM 呼び出しを「並列」実行し、トークンを doc_index 付きで
+        // インターリーブしてストリーミングする（従来は直列でグループ数分だけ待っていた）。
 
-        // Step 4: 法令グループごとに 1 つの統合回答を生成してストリーミング
+        // まず全グループのタブ開始イベントを順番に送る（タブ表示順を保証）
         for (let gi = 0; gi < groupOrder.length; gi++) {
-          const groupName = groupOrder[gi];
-          const { firstDocId, chunks } = groups.get(groupName)!;
-
-          // タブ開始イベント（filename にはグループ名を入れて UI のラベルに使う）
+          const { firstDocId } = groups.get(groupOrder[gi])!;
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: "doc_start",
                 doc_index: gi,
                 document_id: firstDocId,
-                filename: groupName,
+                filename: groupOrder[gi],
               })}\n\n`
             )
           );
+        }
 
-          // チャンクが無ければスキップ
+        const basePrompt = systemPromptOverride || DEFAULT_SYSTEM_PROMPT;
+
+        // 1 グループ分の回答を生成しつつ chunk/sources/done をストリーミングする
+        const runGroup = async (gi: number) => {
+          const groupName = groupOrder[gi];
+          const { firstDocId, chunks } = groups.get(groupName)!;
+
+          // チャンクが無ければ LLM を呼ばずに即返す
           if (chunks.length === 0) {
             const noResultMsg = "この文書には関連する情報が見つかりませんでした。";
             controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "chunk", content: noResultMsg, doc_index: gi })}\n\n`
-              )
+              encoder.encode(`data: ${JSON.stringify({ type: "chunk", content: noResultMsg, doc_index: gi })}\n\n`)
             );
             controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "doc_sources", doc_index: gi, sources: [] })}\n\n`
-              )
+              encoder.encode(`data: ${JSON.stringify({ type: "doc_sources", doc_index: gi, sources: [] })}\n\n`)
             );
             controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: noResultMsg })}\n\n`
-              )
+              encoder.encode(`data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: noResultMsg })}\n\n`)
             );
-            docResults.push({ document_id: firstDocId, filename: groupName, full_response: noResultMsg });
-            continue;
+            return { document_id: firstDocId, filename: groupName, full_response: noResultMsg, promptTokens: 0, completionTokens: 0 };
           }
 
-          // Build context and system prompt
-          const context = buildContext(chunks);
-          const basePrompt = systemPromptOverride || DEFAULT_SYSTEM_PROMPT;
-          const systemPrompt = basePrompt.replace("{context}", context);
-
+          const systemPrompt = basePrompt.replace("{context}", buildContext(chunks));
           const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
             { role: "system", content: systemPrompt },
           ];
           for (const msg of history.slice(-10)) {
-            messages.push({
-              role: msg.role as "user" | "assistant",
-              content: msg.content,
-            });
+            messages.push({ role: msg.role as "user" | "assistant", content: msg.content });
           }
           messages.push({ role: "user", content: message });
 
@@ -236,6 +227,11 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             model: "gpt-5-nano",
             messages,
             seed: 42,
+            // 低レイテンシ化: 既定の重い推論を抑え、簡潔出力＋上限で暴走を防ぐ。
+            // 本ボットは出典引用の抽出タスクなので minimal で十分。
+            reasoning_effort: "minimal",
+            verbosity: "low",
+            max_completion_tokens: 1200,
             stream: true,
             stream_options: { include_usage: true },
           });
@@ -243,25 +239,19 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           let fullResponse = "";
           let promptTokens = 0;
           let completionTokens = 0;
-
           for await (const chunk of stream) {
             if (chunk.usage) {
               promptTokens = chunk.usage.prompt_tokens;
               completionTokens = chunk.usage.completion_tokens;
             }
-            if (chunk.choices?.[0]?.delta?.content) {
-              const content = chunk.choices[0].delta.content;
+            const content = chunk.choices?.[0]?.delta?.content;
+            if (content) {
               fullResponse += content;
               controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "chunk", content, doc_index: gi })}\n\n`
-                )
+                encoder.encode(`data: ${JSON.stringify({ type: "chunk", content, doc_index: gi })}\n\n`)
               );
             }
           }
-
-          totalPromptTokens += promptTokens;
-          totalCompletionTokens += completionTokens;
 
           // 参照元はグループ内の実ファイル名のままユーザーに表示する
           const sources = chunks.map((c) => ({
@@ -272,19 +262,25 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             similarity: Math.round(c.similarity * 1000) / 1000,
           }));
           controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "doc_sources", doc_index: gi, sources })}\n\n`
-            )
+            encoder.encode(`data: ${JSON.stringify({ type: "doc_sources", doc_index: gi, sources })}\n\n`)
           );
-
           controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: fullResponse })}\n\n`
-            )
+            encoder.encode(`data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: fullResponse })}\n\n`)
           );
 
-          docResults.push({ document_id: firstDocId, filename: groupName, full_response: fullResponse });
-        }
+          return { document_id: firstDocId, filename: groupName, full_response: fullResponse, promptTokens, completionTokens };
+        };
+
+        // 全グループを並列実行（壁時計時間 ≈ 最も遅いグループ 1 本分）
+        const groupResults = await Promise.all(groupOrder.map((_, gi) => runGroup(gi)));
+
+        const totalPromptTokens = groupResults.reduce((s, r) => s + r.promptTokens, 0);
+        const totalCompletionTokens = groupResults.reduce((s, r) => s + r.completionTokens, 0);
+        const docResults = groupResults.map((r) => ({
+          document_id: r.document_id,
+          filename: r.filename,
+          full_response: r.full_response,
+        }));
 
         // Final done signal
         controller.enqueue(
