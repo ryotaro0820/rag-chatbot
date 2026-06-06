@@ -253,19 +253,30 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           let promptTokens = 0;
           let completionTokens = 0;
           let lineBuf = "";
+          let started = false;
 
-          // 行頭の箇条書き記号（- * • ‐）を「・」へ確定的に正規化して送出する。
-          // gpt-5-nano は「・」指定を時々無視するため、表示側で確実に揃える。
-          // 行単位でバッファするのでストリーミング感は維持される。
+          // 表示を確定的に整える正規化（gpt-5-nano は「・」や改行指定を時々無視するため）:
+          //  1) 行頭の箇条書き記号（- * • ‐ ・ ＋前後の空白）を必ず単一の「・」へ
+          //  2) 行中の「空白＋・」を「改行＋・」へ＝各箇条書きを必ず改行で始める
+          //     語中の中黒（例: 点検・検査）は前に空白が無いので影響しない
+          const normalizeLine = (line: string) =>
+            line
+              .replace(/^[ \t　]*[-*•‐・]+[ \t　]*/, "・")
+              .replace(/[ \t　]+・[ \t　]*/g, "\n・");
+
           const emitChunk = (text: string) => {
             if (!text) return;
+            // 先頭の余分な改行・空白は最初の送出時に取り除く
+            if (!started) {
+              text = text.replace(/^\s+/, "");
+              if (!text) return;
+              started = true;
+            }
             fullResponse += text;
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: "chunk", content: text, doc_index: gi })}\n\n`)
             );
           };
-          const normalizeBullet = (line: string) =>
-            line.replace(/^([ \t　]*)[-*•‐]+[ \t　]+/, "$1・");
 
           for await (const chunk of stream) {
             if (chunk.usage) {
@@ -278,13 +289,13 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             // 改行を含む完成した行を順に正規化して送出する
             let nl = lineBuf.indexOf("\n");
             while (nl !== -1) {
-              emitChunk(normalizeBullet(lineBuf.slice(0, nl + 1)));
+              emitChunk(normalizeLine(lineBuf.slice(0, nl + 1)));
               lineBuf = lineBuf.slice(nl + 1);
               nl = lineBuf.indexOf("\n");
             }
           }
           // 末尾の未完了行（改行なし）を送出
-          emitChunk(normalizeBullet(lineBuf));
+          emitChunk(normalizeLine(lineBuf));
 
           // 参照元はグループ内の実ファイル名のままユーザーに表示する
           const sources = chunks.map((c) => ({
