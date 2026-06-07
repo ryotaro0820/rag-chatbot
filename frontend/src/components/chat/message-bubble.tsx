@@ -4,7 +4,16 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { ChevronDown, ChevronUp, FileText, User } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  User,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  Sparkles,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeedbackButtons } from "./feedback-buttons";
@@ -66,8 +75,48 @@ function MarkdownWithCitations({ content }: { content: string }) {
   );
 }
 
+// 文書外の一般知識との整合性バッジ（方式B）
+function ConsistencyBadge({ verdict, note }: { verdict: string; note: string }) {
+  const map: Record<
+    string,
+    { label: string; cls: string; Icon: typeof CheckCircle2 }
+  > = {
+    一致: {
+      label: "一般知識とも整合",
+      cls: "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300",
+      Icon: CheckCircle2,
+    },
+    部分一致: {
+      label: "一部相違あり（要確認）",
+      cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300",
+      Icon: AlertTriangle,
+    },
+    不一致: {
+      label: "一般知識と相違（要確認）",
+      cls: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
+      Icon: AlertTriangle,
+    },
+  };
+  const s = map[verdict] || {
+    label: "整合性: 判定対象外",
+    cls: "border-border bg-muted text-muted-foreground",
+    Icon: Info,
+  };
+  const Icon = s.Icon;
+  return (
+    <div className={`flex items-start gap-1.5 rounded-md border px-2 py-1 text-xs ${s.cls}`}>
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div>
+        <span className="font-medium">{s.label}</span>
+        {note && <span className="ml-1 opacity-90">— {note}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubble({ message }: MessageBubbleProps) {
   const [showSources, setShowSources] = useState(false);
+  const [showReference, setShowReference] = useState(false);
   const [activeDocIndex, setActiveDocIndex] = useState(0);
   const isUser = message.role === "user";
 
@@ -120,6 +169,42 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               ) : (
                 <div className="prose prose-sm max-w-none dark:prose-invert">
                   <MarkdownWithCitations content={activeDoc.content} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 整合性バッジ（文書外の一般知識との照合結果） */}
+          {activeDoc && !activeDoc.isStreaming && activeDoc.consistency && (
+            <ConsistencyBadge
+              verdict={activeDoc.consistency.verdict}
+              note={activeDoc.consistency.note}
+            />
+          )}
+
+          {/* 参考（文書外の一般情報） */}
+          {activeDoc && !activeDoc.isStreaming && activeDoc.reference && (
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => setShowReference(!showReference)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <Sparkles className="h-3 w-3" />
+                参考（文書外の一般情報）
+                {showReference ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+              </button>
+              {showReference && (
+                <div className="rounded-md border bg-background p-2 text-xs">
+                  <p className="mb-1 text-[10px] text-muted-foreground">
+                    ※ 社内文書ではなく AI の一般知識による参考情報です。最新の法令と異なる場合があります。回答の根拠は上の本文・出典をご確認ください。
+                  </p>
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <MarkdownWithCitations content={activeDoc.reference} />
+                  </div>
                 </div>
               )}
             </div>

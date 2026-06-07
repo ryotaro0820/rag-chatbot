@@ -193,6 +193,37 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
                     return { ...prev, messages: msgs };
                   });
                 }
+              } else if (data.type === "reference") {
+                // 文書外の一般知識による参考回答(②)
+                if (docResponses[data.doc_index]) {
+                  docResponses[data.doc_index].reference = data.content;
+                  setConversation((prev) => {
+                    const msgs = [...prev.messages];
+                    msgs[msgs.length - 1] = {
+                      ...msgs[msgs.length - 1],
+                      docResponses: [...docResponses],
+                      isStreaming: true,
+                    };
+                    return { ...prev, messages: msgs };
+                  });
+                }
+              } else if (data.type === "consistency") {
+                // 文書ベース回答との整合性判定(③)
+                if (docResponses[data.doc_index]) {
+                  docResponses[data.doc_index].consistency = {
+                    verdict: data.verdict,
+                    note: data.note,
+                  };
+                  setConversation((prev) => {
+                    const msgs = [...prev.messages];
+                    msgs[msgs.length - 1] = {
+                      ...msgs[msgs.length - 1],
+                      docResponses: [...docResponses],
+                      isStreaming: true,
+                    };
+                    return { ...prev, messages: msgs };
+                  });
+                }
               } else if (data.type === "done") {
                 chatLogId = data.chat_log_id;
               }

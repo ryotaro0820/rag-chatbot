@@ -6,6 +6,14 @@ export interface DocResponse {
   sources: SourceReference[];
   isStreaming: boolean;
   isDone: boolean;
+  // 裏での整合性チェック（方式B）
+  reference?: string; // 文書外の一般知識による参考回答(②)
+  consistency?: ConsistencyVerdict; // 文書ベース回答との整合性判定(③)
+}
+
+export interface ConsistencyVerdict {
+  verdict: "一致" | "部分一致" | "不一致" | "判定不能" | string;
+  note: string;
 }
 
 export interface ChatMessage {

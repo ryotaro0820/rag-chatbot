@@ -89,6 +89,104 @@ export interface ChatStreamOptions {
   systemPromptOverride?: string | null;
 }
 
+// ============================================================================
+// 裏での整合性チェック（方式B / (i)純・一般知識 / 全体適用）
+// ----------------------------------------------------------------------------
+// ② 文書を一切渡さず、一般知識のみで回答させる（参考用）
+// ③ 文書ベース回答（正）と②の整合性を判定する
+// 環境変数 CROSS_CHECK_ENABLED="false" で無効化できる（既定: 有効）。
+// ============================================================================
+
+const GENERAL_KNOWLEDGE_PROMPT = `あなたは法令・実務に詳しいアシスタントです。次の質問に「あなたの一般知識のみ」で答えてください（参考文書は与えられません）。
+・箇条書きで端的に。各項目の先頭に「・」を付ける。
+・不確かな点は「一般には〜とされる（要確認）」と明示する。
+・最新の法改正を反映していない可能性がある点に留意する。`;
+
+async function generateGeneralAnswer(
+  client: OpenAI,
+  message: string,
+  history: { role: string; content: string }[]
+): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
+  const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+    { role: "system", content: GENERAL_KNOWLEDGE_PROMPT },
+  ];
+  for (const m of history.slice(-6)) {
+    messages.push({ role: m.role as "user" | "assistant", content: m.content });
+  }
+  messages.push({ role: "user", content: message });
+  const res = await client.chat.completions.create({
+    model: "gpt-5-nano",
+    messages,
+    seed: 42,
+    reasoning_effort: "minimal",
+    verbosity: "low",
+    max_completion_tokens: 800,
+  });
+  return {
+    text: (res.choices[0]?.message?.content || "").trim(),
+    promptTokens: res.usage?.prompt_tokens || 0,
+    completionTokens: res.usage?.completion_tokens || 0,
+  };
+}
+
+const JUDGE_PROMPT = `以下の2つの回答の整合性を判定してください。
+「文書ベース回答」を正（社内文書に基づく）とし、一般知識が異なっても文書側を誤りとはしないこと。差異は note に記す。
+
+【文書ベース回答（正）】
+{doc}
+
+【一般知識回答（参考）】
+{general}
+
+必ず次のJSONを1個だけ返す（前後に文章を付けない）:
+{"verdict":"一致|部分一致|不一致|判定不能","note":"相違点や補足を1〜2文。無ければ空文字"}
+判定基準:
+- 一致: 主要な事実・数値・結論が矛盾しない
+- 部分一致: 一部一致するが片方にしかない要素や軽微な差がある
+- 不一致: 事実・数値・結論が明確に矛盾する
+- 判定不能: 文書ベース回答が「情報なし」等で比較できない`;
+
+const VALID_VERDICTS = ["一致", "部分一致", "不一致", "判定不能"];
+
+async function judgeConsistency(
+  client: OpenAI,
+  docAnswer: string,
+  generalAnswer: string
+): Promise<{ verdict: string; note: string; promptTokens: number; completionTokens: number }> {
+  const res = await client.chat.completions.create({
+    model: "gpt-5-nano",
+    messages: [
+      {
+        role: "system",
+        content: JUDGE_PROMPT.replace("{doc}", docAnswer).replace("{general}", generalAnswer),
+      },
+    ],
+    seed: 42,
+    reasoning_effort: "minimal",
+    verbosity: "low",
+    max_completion_tokens: 300,
+    response_format: { type: "json_object" },
+  });
+  const raw = res.choices[0]?.message?.content || "";
+  let verdict = "判定不能";
+  let note = "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.verdict === "string" && VALID_VERDICTS.includes(parsed.verdict)) {
+      verdict = parsed.verdict;
+    }
+    if (typeof parsed.note === "string") note = parsed.note;
+  } catch {
+    // パース失敗時は「判定不能」のまま（fail-open）
+  }
+  return {
+    verdict,
+    note,
+    promptTokens: res.usage?.prompt_tokens || 0,
+    completionTokens: res.usage?.completion_tokens || 0,
+  };
+}
+
 export function createChatStream(options: ChatStreamOptions): ReadableStream {
   const {
     openaiClient,
@@ -143,6 +241,20 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
           controller.close();
           return;
         }
+
+        // 裏で「一般知識のみの回答」(②) を 1 回だけ先行生成する（検索・本文生成と並行）。
+        // 質問のみに依存するため法令グループ間で共有でき、コストは +1 回で済む。
+        const CROSS_CHECK_ENABLED = process.env.CROSS_CHECK_ENABLED !== "false";
+        const generalPromise: Promise<{
+          text: string;
+          promptTokens: number;
+          completionTokens: number;
+        } | null> = CROSS_CHECK_ENABLED
+          ? generateGeneralAnswer(openaiClient, message, history).catch((e) => {
+              console.error("一般知識回答の生成エラー:", e);
+              return null;
+            })
+          : Promise.resolve(null);
 
         // Step 2: Generate embedding ONCE
         const { embedding: queryEmbedding, tokens: embeddingTokens } =
@@ -207,6 +319,33 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
 
         const basePrompt = systemPromptOverride || DEFAULT_SYSTEM_PROMPT;
 
+        // 文書ベース回答(①)と一般知識回答(②)の整合性を判定し、
+        // reference(②本文) と consistency(③判定) イベントを送出する。
+        // 判定(③)の使用トークンを返す（②のトークンは末尾で 1 回だけ加算する）。
+        const emitCrossCheck = async (gi: number, docAnswer: string) => {
+          if (!CROSS_CHECK_ENABLED) return { p: 0, c: 0 };
+          const general = await generalPromise;
+          if (!general || !general.text) return { p: 0, c: 0 };
+          // 参考（文書外の一般知識）回答
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "reference", doc_index: gi, content: general.text })}\n\n`
+            )
+          );
+          try {
+            const judge = await judgeConsistency(openaiClient, docAnswer, general.text);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "consistency", doc_index: gi, verdict: judge.verdict, note: judge.note })}\n\n`
+              )
+            );
+            return { p: judge.promptTokens, c: judge.completionTokens };
+          } catch (e) {
+            console.error("整合性判定エラー:", e);
+            return { p: 0, c: 0 };
+          }
+        };
+
         // 1 グループ分の回答を生成しつつ chunk/sources/done をストリーミングする
         const runGroup = async (gi: number) => {
           const groupName = groupOrder[gi];
@@ -224,7 +363,8 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: noResultMsg })}\n\n`)
             );
-            return { document_id: firstDocId, filename: groupName, full_response: noResultMsg, promptTokens: 0, completionTokens: 0 };
+            const cc0 = await emitCrossCheck(gi, noResultMsg);
+            return { document_id: firstDocId, filename: groupName, full_response: noResultMsg, promptTokens: cc0.p, completionTokens: cc0.c };
           }
 
           const systemPrompt =
@@ -337,14 +477,25 @@ export function createChatStream(options: ChatStreamOptions): ReadableStream {
             encoder.encode(`data: ${JSON.stringify({ type: "doc_done", doc_index: gi, full_response: fullResponse })}\n\n`)
           );
 
+          // 裏で整合性チェック（②参考回答 + ③判定）を送出
+          const cc = await emitCrossCheck(gi, fullResponse);
+          promptTokens += cc.p;
+          completionTokens += cc.c;
+
           return { document_id: firstDocId, filename: groupName, full_response: fullResponse, promptTokens, completionTokens };
         };
 
         // 全グループを並列実行（壁時計時間 ≈ 最も遅いグループ 1 本分）
         const groupResults = await Promise.all(groupOrder.map((_, gi) => runGroup(gi)));
 
-        const totalPromptTokens = groupResults.reduce((s, r) => s + r.promptTokens, 0);
-        const totalCompletionTokens = groupResults.reduce((s, r) => s + r.completionTokens, 0);
+        // 一般知識回答(②)のトークンはグループ間で共有のため、ここで 1 回だけ加算する
+        const generalResult = await generalPromise;
+        const totalPromptTokens =
+          groupResults.reduce((s, r) => s + r.promptTokens, 0) +
+          (generalResult?.promptTokens || 0);
+        const totalCompletionTokens =
+          groupResults.reduce((s, r) => s + r.completionTokens, 0) +
+          (generalResult?.completionTokens || 0);
         const docResults = groupResults.map((r) => ({
           document_id: r.document_id,
           filename: r.filename,
