@@ -64,13 +64,12 @@ function MarkdownWithCitations({ content }: { content: string }) {
           <ul className="my-1 flex list-none flex-col gap-1 pl-0">{children}</ul>
         ),
         li: ({ children }) => (
-          <li className="flex items-start gap-2">
+          <li className="flex items-start gap-2.5">
+            {/* はっきりした塗りつぶしの丸ドットを箇条書きマーカーにする */}
             <span
               aria-hidden
-              className="mt-[1px] shrink-0 select-none text-base font-bold leading-6 text-primary"
-            >
-              ・
-            </span>
+              className="mt-[0.5em] h-2 w-2 shrink-0 rounded-full bg-foreground"
+            />
             <span className="min-w-0 flex-1">{children}</span>
           </li>
         ),
