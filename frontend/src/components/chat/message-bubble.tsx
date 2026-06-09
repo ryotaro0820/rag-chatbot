@@ -48,11 +48,32 @@ interface MessageBubbleProps {
  * preceding sentence even when the model omits the blank line.
  */
 function MarkdownWithCitations({ content }: { content: string }) {
-  const processed = content.replace(/\s*\n\s*(出典[：:])/g, "\n\n$1");
+  // 箇条書きを「はっきりした・付きリスト」として描画するための前処理:
+  //  1) インラインの「空白＋・」を改行に（語中の中黒は前に空白が無いので除外）
+  //  2) 行頭の「・」を Markdown のリスト項目「- 」に変換（ul/li で明確な・を描画）
+  //  3) 出典は段落として分離
+  const processed = content
+    .replace(/[ \t　]+・[ \t　]*/g, "\n・")
+    .replace(/(^|\n)[ \t　]*・[ \t　]*/g, "$1- ")
+    .replace(/\s*\n\s*(出典[：:])/g, "\n\n$1");
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkBreaks]}
       components={{
+        ul: ({ children }) => (
+          <ul className="my-1 flex list-none flex-col gap-1 pl-0">{children}</ul>
+        ),
+        li: ({ children }) => (
+          <li className="flex items-start gap-2">
+            <span
+              aria-hidden
+              className="mt-[1px] shrink-0 select-none text-base font-bold leading-6 text-primary"
+            >
+              ・
+            </span>
+            <span className="min-w-0 flex-1">{children}</span>
+          </li>
+        ),
         p: ({ children, ...props }) => {
           const first = Array.isArray(children) ? children[0] : children;
           const text = typeof first === "string" ? first : "";
