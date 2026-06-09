@@ -139,6 +139,7 @@ async function logChatInBackground(
   try {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
     let fullResponse = "";
     let sources: unknown = null;
     let promptTokens = 0;
@@ -150,9 +151,12 @@ async function logChatInBackground(
       const { done, value } = await reader.read();
       if (done) break;
 
-      const text = decoder.decode(value);
-      const lines = text.split("\n");
-      for (const line of lines) {
+      // 行をネットワーク境界をまたいでバッファし、未完了行を次の read と結合する。
+      // （大きな done イベントが分割されてトークン集計を取りこぼすのを防ぐ）
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop() ?? "";
+      for (const line of parts) {
         if (line.startsWith("data: ")) {
           try {
             const data = JSON.parse(line.slice(6));

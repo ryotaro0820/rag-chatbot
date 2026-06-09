@@ -120,15 +120,20 @@ export function ChatContainer({ chatbotSlug }: ChatContainerProps) {
         abortRef.current = abort;
         const decoder = new TextDecoder();
         let chatLogId: number | undefined;
+        let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const text = decoder.decode(value);
-          const lines = text
-            .split("\n")
-            .filter((line) => line.startsWith("data: "));
+          // SSE を行単位で解析する。ネットワーク境界で 1 行が分割されても、
+          // 末尾の未完了行はバッファに残し次の read と結合してから処理する。
+          // （reference など大きいイベントが途中で切れて欠落するのを防ぐ）。
+          // decode は { stream: true } で日本語マルチバイトの分割破損も防ぐ。
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n");
+          buffer = parts.pop() ?? "";
+          const lines = parts.filter((line) => line.startsWith("data: "));
 
           for (const line of lines) {
             try {
