@@ -38,4 +38,4 @@ rag-chatbot/
 GitHub: `git@github.com:ryotaro0820/rag-chatbot.git`
 
 > `~/Desktop/rag-chatbot` は移行前の残骸。2026-08-16 に `~/Desktop/_archive/` へ退避済み。
-> こちら（`~/dev/clients/dp/rag-chatbot`）が正。
+> こちら（`~/work/clients/dp/rag-chatbot`）が正。
